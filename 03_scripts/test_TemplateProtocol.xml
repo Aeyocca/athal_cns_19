@@ -1,0 +1,12 @@
+<jellyProtocol>
+    <reference>/mnt/research/edgerpat_lab/AlanY/01_athal_cns/assembly_golicz16/14_PBJelly/SRR1946560_bwa_alt_3_gf_1.fasta</reference>  
+    <outputDir>/mnt/research/edgerpat_lab/AlanY/01_athal_cns/assembly_golicz16/14_PBJelly/</outputDir>
+    <cluster>
+        <command notes="For PBS/Moab">echo '${CMD}' | msub -N "${JOBNAME}" -o ${STDOUT} -e ${STDERR} -l walltime=4:00:00,nodes=10:ppn=1,mem=100gb</command>
+        <nJobs>1</nJobs>
+    </cluster>
+    <blasr>-minMatch 8 -sdpTupleSize 8 -minPctIdentity 75 -bestn 1 -nCandidates 10 -maxScore -500 -nproc 8 -noSplitSubreads</blasr>
+    <input baseDir="/mnt/research/edgerpat_lab/AlanY/01_athal_cns/assembly_golicz16/10_masurca/07_gf/tmp/CA/">
+        <job>final.genome.scf.fasta</job>
+    </input>
+</jellyProtocol>

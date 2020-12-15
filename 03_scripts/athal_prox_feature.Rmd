@@ -1,0 +1,262 @@
+---
+title: "athal_prox_feature"
+output: html_document
+---
+
+#mess around with calculations and permutations
+
+First on the docket:
+- calculate percent of CNS +/- a region of the proximate gene
+
+Calculation of closest boundary to proximate gene performed already:
+#[yoccaala@dev-intel14 acc_hits]$ for i in /mnt/research/edgerpat_lab/AlanY/01_athal_cns/cns_calls/acc_hits/SRR*closest_gene_tair10.bed; do base=$(echo ${i} | sed "s/\.bed//"); /mnt/research/edgerpat_lab/AlanY/01_athal_cns/perl/prox_feature_distance.pl --input ${i} --header --output ${base}_dist.txt; done
+
+Those overlapping gene were given a distance of zero
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_hits/prox_files/"
+tag = "_all_closest_gene_tair10_dist.txt"
+file.names <- dir(path, pattern=tag, full.names = T)
+list_of_files <- file.names
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(tag,'',.)
+
+#list of vectors
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,row.names = NULL,header= T, sep = "\t")
+})
+
+#calculating percent of CNS within X of feature B:
+distance = 500
+
+total_feature_a = 0
+total_within_dist = 0
+
+for ( i in 1:length(loaded_list_of_files)) {
+  total_feature_a = total_feature_a + nrow(loaded_list_of_files[[i]])
+  total_within_dist = total_within_dist + nrow(loaded_list_of_files[[i]][
+    which(loaded_list_of_files[[i]]$Distance < distance &
+          loaded_list_of_files[[i]]$Distance > -distance),])
+}
+
+percent_within = total_within_dist / total_feature_a
+percent_within
+#[1] 0.371704
+```
+
+Now lets get average PosV distance to proximate gene
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_hits/prox_files/"
+tag = "_moved_closest_gene_tair10_dist.txt"
+file.names <- dir(path, pattern=tag, full.names = T)
+file.names = file.names[which(! grepl("SRR1946036_bwa_alt_3_pbj_5_rename",file.names))]
+list_of_files <- file.names
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(tag,'',.)
+#excluding SRR1946036_bwa_alt_3_pbj_5_rename from analysis
+#because chromosome 2 was not annotated some how...
+accession_list = accession_list[which(! grepl("SRR1946036_bwa_alt_3_pbj_5_rename" ,accession_list))]
+
+#list of vectors
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,row.names = NULL,header= F, sep = "\t")
+})
+
+#calculating average distance to gene B (Absolute distance)
+
+total_feature_a = 0
+total_dist = 0
+
+for ( i in 1:length(loaded_list_of_files)) {
+  total_feature_a = total_feature_a + nrow(loaded_list_of_files[[i]])
+  total_dist = total_dist + sum(abs(loaded_list_of_files[[i]]$V3))
+  #avg_loop = sum(abs(loaded_list_of_files[[i]]$V3))/nrow(loaded_list_of_files[[i]])
+  #print(paste0("Avg iter ",i," :",avg_loop))
+}
+#
+#[1] "Avg iter 26 :1341.55217500629"
+#[1] "Avg iter 27 :1317989.37128713"
+#[1] "Avg iter 28 :1310.61298439859"
+#which of theeeeese is not like the other????
+#which of these is not the same???
+
+0.01/9
+avg_dist = total_dist / total_feature_a
+avg_dist
+#[1] 42315.76
+#[1] 1462.925
+#much more like it
+
+#permutation analysis:
+#- shuffle posV CNS across the genome, run through this calculation:
+#   - just set up at R script to spit these out?? Not a terrible idea
+
+```
+
+
+#checking that permutations worked
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#load in one of the permutations / check the distribution of them
+
+permutation_df = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945758_bwa_alt_3_pbj_6_rename_mx_moved_perm_dist.txt", sep = "\t", row.names = NULL,header = F)
+
+observed_df = read.table("/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945758_bwa_alt_3_pbj_6_rename_mx_moved_closest_tair10_dist.txt", sep = "\t", row.names = NULL,header = F)
+
+dist_vect = as.numeric(permutation_df$V3)
+permutation_df$V3 = as.numeric(permutation_df$V3)
+
+abs_dist = (sqrt(dist_vect **2))
+  
+mean(dist_vect)
+#[1] 522.2687
+sd(dist_vect)
+#[1] 12639.28
+median(dist_vect)
+#[1] -80
+
+mean(abs_dist)
+#[1] 2689.85
+sd(abs_dist)
+#[1] 12360.78
+median(abs_dist)
+#[1] 1022
+
+dist_dist = permutation_df %>% 
+  ggplot(aes(x = V3)) +
+  geom_density() +
+  xlim(-10000,10000)
+dist_dist
+
+dist_comp_df = data.frame(Permutation = permutation_df$V3,
+                          Observed = observed_df$Distance)
+permutation_df$Type = rep("Perm",nrow(permutation_df))
+observed_df$Type = rep("Observed",nrow(observed_df))
+
+colnames(permutation_df)[3] = "Distance"
+dist_comp_df = rbind(observed_df[,c(3,6)],permutation_df[,c(3,6)])
+
+dist_comp = dist_comp_df %>% 
+  ggplot(aes(x= Distance, colour = Type)) +
+  geom_density() +
+  xlim(-10000,10000)
+dist_comp
+#
+
+ks.test(as.vector(abs(permutation_df$Distance[1:64578])),as.vector(abs(observed_df$Distance)))
+
+t.test(as.vector(abs(permutation_df$Distance[1:64578])),as.vector(abs(observed_df$Distance)))
+
+
+```
+
+#distribution of sampling means instead of one sampling distribution
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#load in one of the permutations / check the distribution of them
+
+permutation_df = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945758_bwa_alt_3_pbj_6_rename_mx_moved_perm_dist.txt", sep = "\t", row.names = NULL,header = F)
+
+observed_df = read.table("/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945758_bwa_alt_3_pbj_6_rename_mx_moved_closest_tair10_dist.txt", sep = "\t", row.names = NULL,header = F)
+
+obs_dist = sqrt(as.numeric(observed_df$V3) **2)
+obs_mean = mean(obs_dist)
+obs_median = median(obs_dist)
+obs_sd = sd(obs_dist)
+
+perm_plot = permutation_df %>% 
+  ggplot(aes(x = V1)) +
+  geom_density() +
+  geom_vline(xintercept = obs_mean) +
+  geom_text(aes(obs_mean,0.002,label = paste0("Observed mean = ",obs_mean), angle = 90), vjust = 1) +
+  xlim(0,max(permutation_df$V1)) +
+  xlab(label = "Distance to proximate gene")
+perm_plot
+```
+
+
+#code for creating supplemental figures showing:
+- distributions of permutations and vs. observations
+- stat test (t test and ks test) showing distributions are different with apparent bias near genes for observations
+- fudge, should only have been permuting posv not all right? yea that is what I am testing
+
+```{r}
+#load in all the files, different observed and permuted vectors
+
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#load in one of the permutations / check the distribution of them
+
+path = "/Users/alanyocca/Documents/01_athal_cns/17_ATAC/02_posv_permutations"
+file.names.perm <- dir(path, pattern="*mx_moved_perm_dist.txt", full.names = T)
+perm_list_of_files <- file.names.perm
+perm_loaded_list_of_files <- lapply(perm_list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#path = "/Users/alanyocca/Documents/01_athal_cns/17_ATAC/02_posv_permutations"
+file.names.obs <- dir(path, pattern="*_moved_closest_gene_tair10_dist.txt", full.names = T)
+obs_list_of_files <- file.names.obs
+obs_loaded_list_of_files <- lapply(obs_list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#get into two column data frame, Permutation_means and Observed_means
+dist_df = data.frame(Mean = character(),
+                     Type = character(),
+                     stringsAsFactors = F)
+for (i in 1:length(perm_loaded_list_of_files)) {
+  loop_df = data.frame(Mean = perm_loaded_list_of_files[[i]]$V1,
+                       Type = rep("Permutation mean",nrow(perm_loaded_list_of_files[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+for (i in 1:length(obs_loaded_list_of_files)) {
+  loop_df = data.frame(Mean = obs_loaded_list_of_files[[i]]$V3,
+                       Type = rep("Observation mean",nrow(obs_loaded_list_of_files[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+
+dist_graph = dist_df %>% 
+  ggplot(aes(x = abs(Mean), colour = Type)) +
+  geom_density() +
+  xlim(0,5000) +
+  xlab(label = "Distance to proximate gene")
+dist_graph
+#
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/posv_insertional_bias.pdf")
+  plot(dist_graph)
+  dev.off()
+
+#ks test
+ks.test(
+  dist_df[which(dist_df$Type == "Permutation mean"),1],
+  dist_df[which(dist_df$Type == "Observation mean"),1]
+)
+#D = 0.87655, p-value < 2.2e-16
+
+
+```
+

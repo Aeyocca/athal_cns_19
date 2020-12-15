@@ -1,0 +1,2283 @@
+---
+title: "GO_enrichment"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+#please help:
+source("https://bioconductor.org/biocLite.R")
+biocLite("topGO")
+library(topGO)
+biocLite("arabidopsis.db0")
+library("arabidopsis.db0")
+biocLite("ath1121501.db")
+library("ath1121501.db")
+
+#load in our list
+tsu_0_list <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tsu_0_moved.txt", stringsAsFactors = F, quote = "")
+
+#I leave it to you to isolate the geneID if you want, or simply load in the already isolated list
+
+#extract the list of gene IDs as a character vector
+key_vect <- as.character(test_list[,1])
+
+#convert geneIDs to a factor object
+gene_fac <- as.factor(key_vect)
+
+#creates a factor with interesting genes coded as 1 and others coded as 0
+int.genes <- factor(as.integer(all_genes %in% gene_fac))
+
+#create names vector, which associates the numbered factors with a gene name
+names(int.genes) <- all_genes
+
+#extract a list of geneIDs and their associated GOids from this online database loaded earlier
+test_gene <- select(ath1121501.db,keys =  key_vect, columns = c("TAIR","GO"), keytype = "TAIR")
+
+#this is what I found online of how you are supposed to create a topGO object, but... I cannot get it to work successfully, I cannot find how to specify an arabidopsis specific annotation set, if you could look into that I think it would be great!
+go.obj <- new("topGOdata",ontology="BP", allGenes=int.genes,annotationFun=ath1121501.db, nodeSize=10)
+
+```
+
+
+GO Enrichment on CNS lists
+
+rewriting cleaner code up here,
+GO Enrichment:
+- Missing
+  - unique
+  - missing in >3 accessions
+  - missing weighted for number of accessions missing in
+  - missing each cluster of missing PCA plot
+- Moved unique
+  - unique
+  - moved in >3 accessions
+  - moved weighted for number of accessions missing in
+  - moved each cluster of missing PCA plot
+
+exclude Col-0' for all these
+
+Code Block: Missing Unique
+
+```{r}
+library(tidyverse)
+
+output_suffix <- "_mi_uniq.txt"
+suffix <- "_missing.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+#convert to single character vector
+loaded_vects <- as.character(unlist(loaded_list_of_files))
+####single accession test
+#loaded_vects <- as.character(unlist(loaded_list_of_files[[1]]))
+#unique list
+uniq_list <- unique(loaded_vects)
+#replace CNS with gene name
+genes_of_interest <- gsub("[0-9]*_","", uniq_list)
+
+
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%genes_of_interest))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% genes_of_interest]
+}))
+
+View(allRes.sig)
+
+write.table(allRes[,1:10], file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/02_all_res/go_table_all",output_suffix),quote = F, row.names = F, sep = "\t")
+
+write.table(allRes.sig, file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/03_sig_res/go_table_sig",output_suffix),quote = F, row.names = F, sep = "\t")
+```
+
+Code Block: Moved Unique
+
+```{r}
+library(tidyverse)
+
+output_suffix <- "_mo_uniq.txt"
+suffix <- "_moved.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+#convert to single character vector
+loaded_vects <- as.character(unlist(loaded_list_of_files))
+####single accession test
+#loaded_vects <- as.character(unlist(loaded_list_of_files[[17]]))
+#unique list
+uniq_list <- unique(loaded_vects)
+#replace CNS with gene name
+genes_of_interest <- gsub("[0-9]*_","", uniq_list)
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%genes_of_interest))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% genes_of_interest]
+}))
+
+#View(allRes.sig)
+
+write.table(allRes[,1:10], file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/02_all_res/go_table_all",output_suffix),quote = F, row.names = F, sep = "\t")
+
+write.table(allRes.sig, file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/03_sig_res/go_table_sig",output_suffix),quote = F, row.names = F, sep = "\t")
+```
+
+Code Block: Missing > 3 accessions
+TRIED:
+2,3,10,15 (80 gene in >15 accessions)
+NO SIGNIFICANTLY ENRICHED GO TERMS
+
+```{r}
+library(tidyverse)
+
+output_suffix <- "_mi_gt3_acc.txt"
+suffix <- "_missing.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+#convert to single character vector
+loaded_vects <- as.character(unlist(loaded_list_of_files))
+#subset to only those present in > 3 accessions
+#View(table(loaded_vects))
+gt_three_df <- as.data.frame(table(loaded_vects))
+gt_three <- gt_three_df[gt_three_df$Freq >= 15,]
+unique_gt_three <- unique(as.character(gt_three$loaded_vects))
+
+
+#replace CNS with gene name
+genes_of_interest <- gsub("[0-9]*_","", unique_gt_three)
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%genes_of_interest))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% genes_of_interest]
+}))
+
+View(allRes.sig)
+
+write.table(allRes[,1:10], file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/02_all_res/go_table_all",output_suffix),quote = F, row.names = F, sep = "\t")
+
+write.table(allRes.sig, file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/02_all_res/go_table_sig",output_suffix),quote = F, row.names = F, sep = "\t")
+```
+
+Code Block: Moved > 3 accessions
+NOTHING
+
+```{r}
+library(tidyverse)
+
+output_suffix <- "_mo_gt3_acc.txt"
+suffix <- "_moved.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+#convert to single character vector
+loaded_vects <- as.character(unlist(loaded_list_of_files))
+#subset to only those present in > 3 accessions
+#View(table(loaded_vects))
+gt_three_df <- as.data.frame(table(loaded_vects))
+gt_three <- gt_three_df[gt_three_df$Freq >= 10,]
+unique_gt_three <- unique(as.character(gt_three$loaded_vects))
+
+#replace CNS with gene name
+genes_of_interest <- gsub("[0-9]*_","", unique_gt_three)
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%genes_of_interest))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% genes_of_interest]
+}))
+
+View(allRes.sig)
+
+write.table(allRes[,1:10], file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/02_all_res/go_table_all",output_suffix),quote = F, row.names = F, sep = "\t")
+
+write.table(allRes.sig, file = paste0("/Users/alanyocca/Documents/01_athal_cns/02_GO/02_all_res/go_table_sig",output_suffix),quote = F, row.names = F, sep = "\t")
+```
+
+over reps and pca clusters.... may just roll with what we gots
+
+
+
+code beneath archived 02-11-19
+
+
+```{r}
+##MISSING
+#load in all the CNSs called missing, create unique list, cut out gene names, run GO enrichment
+
+#Just lifting over code block from line graph rmd
+```
+
+```{r}
+rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line")
+library(tidyverse)
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line"
+file.names.missing <- dir(path.missing, pattern="missing.txt")
+
+#***********KEEP ONLY THE SET FROM GAN 2011******************
+# going to take this out, funnel lists of interest into another directory
+#file.names.missing <- c("bur_0_missing.txt","can_0_missing.txt","ct_1_missing.txt","edi_0_missing.txt","hi_0_missing.txt","kn_0_missing.txt","ler_0_missing.txt","mt_0_missing.txt","no_0_missing.txt","oy_0_missing.txt","po_0_missing.txt","rsch_4_missing.txt","sf_2_missing.txt","tsu_0_missing.txt" ,"wil_2_missing.txt","ws_0_missing.txt","wu_0_missing.txt","zu_0_missing.txt")
+
+#list_of_files <- paste0("cns_calls/acc_missing/",file.names.missing)
+list_of_files <- file.names.missing
+
+accession_list <- gsub('cns_calls/acc_missing/tmp_line/','',list_of_files) %>%
+  gsub('_missing.txt','',.)
+
+#View(accession_list)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+for (i in 1:32) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+#names(loaded_list_of_files[[1]])
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+max_genomes <- length(accession_list)
+for (i in 1:max_genomes) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+uniq_list <- unique(combined_list)
+
+cns_counts <- data.frame(CNS=character(),Count=integer(), Accession=character(), stringsAsFactors = F)
+for (i in uniq_list) {
+  count <- length(grep(i,combined_list))
+  rows_to_get_accesssion_names <- grep(i,combined_list)
+  accessions_vector <- character()
+  for (j in rows_to_get_accesssion_names) {
+    accessions_vector <- c(accessions_vector,as.character(factor(combined_df[j,2])))
+  }
+  accessions_csv <- paste(accessions_vector,collapse = ",")
+  cns_counts[nrow(cns_counts) + 1,] = c(i,count,accessions_csv)
+}
+
+#tidy up
+rm(accession_list,accessions_csv, accessions_vector,col_names_combined_df,combined_list,count,file.names.missing,i,j,list_of_files,path.missing,rows_to_get_accesssion_names,uniq_list,loaded_list_of_files)
+```
+
+```{r}
+##MISSING
+#back to the GO enrichments!!
+
+#should have two dataframes:
+#cns_counts
+##three columns, CNS, Count, Accessions
+##CNS: name of CNS, not repeated
+##Count: How many accessions are missing it
+##Accessions: csv of accession names
+
+#combined_df
+##two columns, CNS, Accession
+##CNS: name of CNS, repeated
+##Accession: name of the accession missing the CNS
+
+#create list from first columnof unique that removed the CNS number tag
+
+list_cns <- as.vector(cns_counts$CNS)
+gene_list_missing <- gsub("^.*_","",list_cns)
+
+library(topGo)
+
+# to run topGo a geneID to Go term mappig is needed this can be generated from a prepared file where the first column is the
+# geneID and the second column is a comma seperated list of GO identifiers alternativly generate the GO mapping can be genrated
+# using the bioMART database for model species
+
+at_cns_missing <- as.data.frame(gene_list_missing)
+# just flip this out with the list of genes in the sweep
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% north_go_sweep[,1]]
+}))
+
+#char_res <- as.character(allRes[,11])
+
+#write.table(allRes.sig, "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/go_table_north.tsv", sep = "\t")
+
+meh, nothing :/
+```
+
+
+Moved:
+
+```{r}
+#rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line")
+library(tidyverse)
+
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line"
+file.names.moved <- dir(path.moved, pattern="moved.txt")
+
+#***********KEEP ONLY THE SET FROM GAN 2011******************
+# going to take this out, funnel lists of interest into another directory
+#file.names.moved <- c("bur_0_moved.txt","can_0_moved.txt","ct_1_moved.txt","edi_0_moved.txt","hi_0_moved.txt","kn_0_moved.txt","ler_0_moved.txt","mt_0_moved.txt","no_0_moved.txt","oy_0_moved.txt","po_0_moved.txt","rsch_4_moved.txt","sf_2_moved.txt","tsu_0_moved.txt" ,"wil_2_moved.txt","ws_0_moved.txt","wu_0_moved.txt","zu_0_moved.txt")
+
+#list_of_files <- paste0("cns_calls/acc_missing/",file.names.missing)
+list_of_files <- file.names.moved
+
+accession_list <- gsub('cns_calls/acc_moved/tmp_line','',list_of_files) %>%
+  gsub('_moved.txt','',.)
+
+#View(accession_list)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+#names(loaded_list_of_files[[1]])
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+uniq_list <- unique(combined_list)
+
+cns_counts <- data.frame(CNS=character(),Count=integer(), Accession=character(), stringsAsFactors = F)
+for (i in uniq_list) {
+  count <- length(grep(i,combined_list))
+  rows_to_get_accesssion_names <- grep(i,combined_list)
+  accessions_vector <- character()
+  for (j in rows_to_get_accesssion_names) {
+    accessions_vector <- c(accessions_vector,as.character(factor(combined_df[j,2])))
+  }
+  accessions_csv <- paste(accessions_vector,collapse = ",")
+  cns_counts[nrow(cns_counts) + 1,] = c(i,count,accessions_csv)
+}
+
+#tidy up
+rm(accession_list,accessions_csv, accessions_vector,col_names_combined_df,combined_list,count,file.names.moved,i,j,list_of_files,path.moved,rows_to_get_accesssion_names,uniq_list,loaded_list_of_files)
+```
+
+
+```{r}
+
+cns_counts_moved <- cns_counts
+cns_counts_missing <- cns_counts
+
+cns_counts <- rbind(cns_counts_moved,cns_counts_missing)
+list_cns <- as.vector(cns_counts$CNS)
+gene_list_missing <- gsub("^.*_","",list_cns)
+
+at_cns_missing <- as.data.frame(gene_list_missing)
+# just flip this out with the list of genes in the sweep
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+```
+
+save gene lists to a file for pat:
+
+```{r}
+write.table(cns_counts_missing, "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/cns_missing_33.txt", sep = "\t", quote = F, row.names = F)
+
+write.table(cns_counts_missing, "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/cns_moved_33.txt", sep = "\t", quote = F, row.names = F)
+
+char_res <- as.character(allRes[,11])
+write.table(char_res, "/Users/alanyocca/Documents/01_athal_cns/cns_calls/allRes_both.txt", sep = "\t", quote = F, row.names = F)
+
+
+```
+
+
+RUN ON SUBSETS, SPLIT BY GEOGRAPHIC LOCATION
+
+```{r}
+#final data structure:
+#ecoid	missing	moved	lat	long
+#where missing and moved are comma separated lists of cns_ids, or gene_ids, but probs easier for cns_ids
+
+eco_lat_long_tag <- read.table("/Users/alanyocca/Documents/01_athal_cns/1001_lat_long_eco_acc.csv", sep = ",")
+#srr_eco_split
+srr_assembled_adp <- read.table("/Users/alanyocca/Documents/01_athal_cns/sra_id_adp.txt")
+srr_assembled_hrd <- read.table("/Users/alanyocca/Documents/01_athal_cns/sra_id_hrd.txt")
+srr_eco <- read.table("/Users/alanyocca/Documents/01_athal_cns/SraRunTable.txt", fill = NA, sep = "\t")
+
+#take combined_df data frame from athal_cns_line_graphs.Rmd file, create.counts.df.missing / moved code blocks:
+
+#the idea is: loop through accession names, get row numbers where that accession is
+
+uniq_list <- unique(combined_df$Accession)
+#temp:
+#uniq_list <- "bur_0"
+combined_list <- combined_df$Accession
+acc_cns_missing <- data.frame(ACC=character(), CNS_missing=character(), stringsAsFactors = F)
+for (i in uniq_list) {
+  #grepl for grep logical
+  #which just gives the indicies of true values
+  rows_to_get_cns_names <- which(grepl(i,combined_df$Accession))
+  cns_vector <- character()
+  for (j in rows_to_get_cns_names) {
+    cns_vector <- c(cns_vector,as.character(factor(combined_df[j,1])))
+  }
+  cns_csv <- paste(cns_vector,collapse = ",")
+  acc_cns_missing[nrow(acc_cns_missing) + 1,] = c(i,cns_csv)
+}
+rm(cns_csv,cns_vector,rows_to_get_cns_names)
+
+#View(uniq_list)
+
+#now we have acc_cns with accession and comma separated CNS list, still need to tag eco id and moved list and lat / long
+
+
+####GO BACK AND RUN THE MOVED CODE BLOCK, combined_df thing will be overwritten
+####HASH OUT THE RM LS LINE IN THE CODE BLOCK SO WHAT I JUST MADE ISN'T DELETED
+#just make a separate thingy
+uniq_list <- unique(combined_df_moved$Accession)
+#temp:
+#uniq_list <- "bur_0"
+combined_list <- combined_df_moved$Accession
+acc_cns_moved <- data.frame(ACC=character(), CNS_moved=character(), stringsAsFactors = F)
+for (i in uniq_list) {
+  #grepl for grep logical
+  #which just gives the indicies of true values
+  rows_to_get_cns_names <- which(grepl(i,combined_df_moved$Accession))
+  cns_vector <- character()
+  for (j in rows_to_get_cns_names) {
+    cns_vector <- c(cns_vector,as.character(factor(combined_df_moved[j,1])))
+  }
+  cns_csv <- paste(cns_vector,collapse = ",")
+  acc_cns_moved[nrow(acc_cns_moved) + 1,] = c(i,cns_csv)
+}
+rm(cns_csv,cns_vector,rows_to_get_cns_names,i,j,combined_list,uniq_list)
+
+acc_cns_missing_moved <- merge(acc_cns_missing,acc_cns_moved, by = "ACC")
+
+#still need to tag eco id and lat / long
+#i=1
+acc_cns_missing_moved_eco_lat_long <- acc_cns_missing_moved
+acc_cns_missing_moved_eco_lat_long[,"eco_id"] <- NA
+acc_cns_missing_moved_eco_lat_long[,"latitude"] <- NA
+acc_cns_missing_moved_eco_lat_long[,"longitude"] <- NA
+#i=1
+for (i in 1:nrow(acc_cns_missing_moved_eco_lat_long)) {
+  if (grepl('^SRR',acc_cns_missing_moved_eco_lat_long[i,1])) {
+    #SRR id, cut it out,
+    srr_id <- as_vector(strsplit(acc_cns_missing_moved_eco_lat_long[i,1], "_"))
+    #use SraRunTable to get eco id,
+    srr_row <- which(grepl(srr_id[1],srr_eco[,12]))
+    eco_id <- as.character(srr_eco[srr_row,14])
+    #use 1001_lat_long_eco_acc.csv to get lat / long
+    eco_row <- eco_lat_long_tag[eco_lat_long_tag$V3 == eco_id,]
+    acc_cns_missing_moved_eco_lat_long[i,5:6] <- as_vector(eco_row[1,1:2])
+    acc_cns_missing_moved_eco_lat_long[i,4] <- as_vector(eco_row[1,3])
+    rm(srr_id,srr_row,eco_id,eco_row)
+  } else {
+    #this is going to be tough because things don't exactly match up
+    acc_id_split <- as_vector(strsplit(acc_cns_missing_moved_eco_lat_long[i,1], "_"))
+    substr(acc_id_split[1], 1, 1) <- toupper(substr(acc_id_split[1], 1, 1))
+    acc_id <- paste(acc_id_split[1],acc_id_split[2], sep = "-")
+    eco_row <- which(grepl(acc_id[1],eco_lat_long_tag[,4]))
+    if (length(eco_row) == 1) {
+      acc_cns_missing_moved_eco_lat_long[i,5:6] <- as_vector(eco_lat_long_tag[eco_row,1:2])
+      acc_cns_missing_moved_eco_lat_long[i,4] <- as_vector(eco_lat_long_tag[eco_row,3])
+    } else {
+      print(acc_id[1])
+      print(eco_row)
+    }
+    rm(eco_row,acc_id_split,acc_id)
+  }
+}
+#rm()
+#View(srr_eco[27,14])
+#View(eco_row[1,1:3])
+?gsub
+
+#hmm need to think of how to get for Gan accessions, wait I already have those don't I?
+#[1] "C24-NA"
+#integer(0)
+#found on TAIR
+#Latitude (min/max)	  	40.2077 / 40.2077
+#Longitude (min/max)	  	-8.42639 / -8.42639
+acc_row <- which(grepl("C24",acc_cns_missing_moved_eco_lat_long$ACC))
+acc_cns_missing_moved_eco_lat_long[acc_row,4:6] <- c(NA,40.2077,-8.42639)
+
+#[1] "Chi2-genomesta"
+#integer(0)
+#can not find a location of origin for this on the TAIR page
+#I think its a T-DNA mutant though, so look up where Chi-0 is and take that
+#53.7502,34.7361,7072,Chi-0
+acc_row <- which(grepl("chi2",acc_cns_missing_moved_eco_lat_long$ACC))
+acc_cns_missing_moved_eco_lat_long[acc_row,4:6] <- c(7072,34.7361,53.7502)
+
+#[1] "Hi-0"
+#integer(0)
+#found on TAIR
+#Latitude (min/max)	  	52 / 52
+#Longitude (min/max)	  	5 / 5
+acc_row <- which(grepl("hi_0",acc_cns_missing_moved_eco_lat_long$ACC))
+acc_cns_missing_moved_eco_lat_long[acc_row,4:6] <- c(NA,52,5)
+
+#[1] "Mt-0"
+#integer(0)
+#Latitude (min/max)	  	32.34 / 32.34
+#Longitude (min/max)	  	22.46 / 22.46
+acc_row <- which(grepl("mt",acc_cns_missing_moved_eco_lat_long$ACC))
+acc_cns_missing_moved_eco_lat_long[acc_row,4:6] <- c(NA,32.34,22.46)
+
+#[1] "Po-0"
+#integer(0)
+#Latitude (min/max)	  	N50 / N51
+#Longitude (min/max)	  	E7 / E7
+acc_row <- which(grepl("po",acc_cns_missing_moved_eco_lat_long$ACC))
+acc_cns_missing_moved_eco_lat_long[acc_row,4:6] <- c(NA,50.5,7)
+
+#those are not in my lat / long file, go searching online for them since there are only 5
+
+#awesome, ready to run go enrichment
+
+acc_cns_missing_moved_eco_lat_long$latitude <- as.integer(acc_cns_missing_moved_eco_lat_long$latitude)
+```
+
+I now have data frame with six columns:
+1. Accession
+2. csv of missing cns_ids
+3. csv of moved cns_ids
+4. ecotype id from 1001 if present (some NAs in this column)
+5. Latitude
+6. Longitude
+
+lets extract lists of things in certain geographic regions and run enrichments on them
+
+ENRICHMENT.DF.50.OVER.MISSING
+- acc_cns_missing_moved_eco_lat_long
+
+```{r}
+
+####lets do above a certain latitude
+#try over 50
+
+df_50_over <- acc_cns_missing_moved_eco_lat_long[acc_cns_missing_moved_eco_lat_long$latitude >= 50,]
+#nrow(df_50_over)
+#[1] 14
+
+#need data frame where one column is all the geneids
+#thinking about how to weight genes based on number of occurrences...
+#right now just takes single value, how to weight based on number of times a gene repeats
+#you could do it yourself by making yuou geneNames list repeated, and factoring out x number of them, don't do that for now, but do it soon
+
+#make dataframe with the cns_missing lists from the df_50_over dataframe
+#pull every cell out, split by comma, add to new dataframe
+cns_set <- data.frame(CNS=character(), stringsAsFactors = F)
+miss_or_move="CNS_missing"
+#i=1
+k=1
+for (i in 1:nrow(df_50_over)) {
+  cns_df <- as.data.frame(strsplit(df_50_over[i,miss_or_move], ","), stringsAsFactors = F)
+#  j=5
+#  colnames(cns_df) <- c("CNS")
+  for (j in 1:nrow(cns_df)) {
+    cns_set[k,1] <- cns_df[j,1]
+    k <- k + 1
+  }
+}
+#length(as.vector(cns_df[j,1]))
+nrow(cns_set)
+
+cns_set_unique <- as.data.frame(unique(cns_set$CNS), stringsAsFactors = F)
+
+list_cns <- as.vector(cns_set_unique$`unique(cns_set$CNS)`)
+gene_list_missing <- gsub("^.*_","",list_cns)
+
+at_cns_missing <- as.data.frame(gene_list_missing)
+# just flip this out with the list of genes in the sweep
+
+library(topGo)
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneList)<- geneNames
+str(geneList)
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+
+
+#based on the initial geographic split above certain latitude, no enrichment. How about for the moved ones??
+```
+
+
+ENRICHMENT.DF.50.OVER.MOVED
+dependents:
+- acc_cns_missing_moved_eco_lat_long
+
+```{r}
+
+df_50_over <- acc_cns_missing_moved_eco_lat_long[acc_cns_missing_moved_eco_lat_long$latitude >= 50,]
+#nrow(df_50_over)
+#[1] 14
+
+#need data frame where one column is all the geneids
+#thinking about how to weight genes based on number of occurrences...
+#right now just takes single value, how to weight based on number of times a gene repeats
+#you could do it yourself by making yuou geneNames list repeated, and factoring out x number of them, don't do that for now, but do it soon
+
+#make dataframe with the cns_missing lists from the df_50_over dataframe
+#pull every cell out, split by comma, add to new dataframe
+cns_set <- data.frame(CNS=character(), stringsAsFactors = F)
+miss_or_move="CNS_moved"
+#i=1
+k=1
+for (i in 1:nrow(df_50_over)) {
+  cns_df <- as.data.frame(strsplit(df_50_over[i,miss_or_move], ","), stringsAsFactors = F)
+#  j=5
+#  colnames(cns_df) <- c("CNS")
+  for (j in 1:nrow(cns_df)) {
+    cns_set[k,1] <- cns_df[j,1]
+    k <- k + 1
+  }
+}
+#length(as.vector(cns_df[j,1]))
+nrow(cns_set)
+
+cns_set_unique <- as.data.frame(unique(cns_set$CNS), stringsAsFactors = F)
+
+list_cns <- as.vector(cns_set_unique$`unique(cns_set$CNS)`)
+gene_list_missing <- gsub("^.*_","",list_cns)
+
+at_cns_missing <- as.data.frame(gene_list_missing)
+# just flip this out with the list of genes in the sweep
+
+library(topGo)
+
+#Generate topGo object from custom file
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneNames <- names(geneID2GO)
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneList)<- geneNames
+str(geneList)
+View(head(geneList))
+View(head(geneList_multiple))
+levels(geneList)
+levels(geneList_multiple)
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+
+
+#based on the initial geographic split above certain latitude, no enrichment. How about for the moved ones??
+```
+
+Since we have multiple individuals, lets do our own weighting, not sure if its valid though. So: we just check if the gene is present in the missing list, but I believe more weight should be given to genes that are recurrent missing in multiple different accessions. could just take the gene list missing in >5 accessions, or multiply our background set by 33, and then hash out the number of times a gene is missing. might be best to make separate for each genome then concatenate. is it possible to concatenate a factorized list? probably
+
+```{r}
+df_50_over <- acc_cns_missing_moved_eco_lat_long[acc_cns_missing_moved_eco_lat_long$latitude >= 50,]
+#nrow(df_50_over)
+#[1] 14
+
+#need data frame where one column is all the geneids
+#thinking about how to weight genes based on number of occurrences...
+#right now just takes single value, how to weight based on number of times a gene repeats
+#you could do it yourself by making yuou geneNames list repeated, and factoring out x number of them, don't do that for now, but do it soon
+
+#make dataframe with the cns_missing lists from the df_50_over dataframe
+#pull every cell out, split by comma, add to new dataframe
+cns_set <- data.frame(CNS=character(), stringsAsFactors = F)
+miss_or_move="CNS_missing"
+#i=1
+k=1
+for (i in 1:nrow(df_50_over)) {
+  cns_df <- as.data.frame(strsplit(df_50_over[i,miss_or_move], ","), stringsAsFactors = F)
+#  j=5
+#  colnames(cns_df) <- c("CNS")
+  for (j in 1:nrow(cns_df)) {
+    cns_set[k,1] <- cns_df[j,1]
+    k <- k + 1
+  }
+}
+#length(as.vector(cns_df[j,1]))
+nrow(cns_set)
+
+list_cns <- as.vector(cns_set_unique$`unique(cns_set$CNS)`)
+gene_list_missing <- gsub("^.*_","",list_cns)
+
+at_cns_missing <- as.data.frame(gene_list_missing)
+
+#need to multiply this object by number of genomes
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+#geneID2GO_multiple <- geneID2GO
+#num_genomes <- nrow(df_50_over)
+#for (i in 2:num_genomes) {
+#  geneID2GO_multiple <- c(geneID2GO_multiple, geneID2GO)
+#}
+#geneNames <- names(geneID2GO_multiple)
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+#this is where it gets interesting, need to factor out as many times as found in genome... I think will just do per genome basis, then combine
+#generate the at_cns_missing object for every genome
+geneList_multiple=factor()
+geneNames_multiple <- character()
+geneNames <- names(geneID2GO)
+geneID2GO_multiple=list()
+for (i in 1:nrow(df_50_over)) {
+  #print(i)
+  cns_set <- data.frame(CNS=character(), stringsAsFactors = F)
+  #miss_or_move="CNS_moved"
+  k=1
+  cns_df <- as.data.frame(strsplit(df_50_over[i,miss_or_move], ","), stringsAsFactors = F)
+  for (j in 1:nrow(cns_df)) {
+    cns_set[k,1] <- cns_df[j,1]
+    k <- k + 1
+  }
+  list_cns <- as.vector(cns_set_unique$`unique(cns_set$CNS)`)
+  gene_list_missing <- gsub("^.*_","",list_cns)
+  at_cns_missing <- as.data.frame(gene_list_missing)
+  geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+  #change gene names for each iteration so you don't break weight01Fisher algorithm
+  geneNames_loop <- paste(geneNames, i, sep = "_")
+  geneNames_multiple <- c(geneNames_multiple, geneNames_loop)
+  #also need to change the name in the corresponding geneID2GO_multiple structure
+  geneID2GO_loop <- geneID2GO
+  names(geneID2GO_loop) <- geneNames_loop
+  geneID2GO_multiple <- c(geneID2GO_multiple, geneID2GO_loop)
+  #str(geneList)
+  #add geneList to multiple gene list
+  geneList_multiple <- append(geneList_multiple,geneList)
+  #cleanup
+  rm(geneList,at_cns_missing,gene_list_missing,list_cns,k,j,i,cns_set,cns_df,geneNames_loop,geneID2GO_loop)
+}
+geneList_multiple <- factor(as.integer(geneList_multiple))
+names(geneList_multiple) <- geneNames_multiple
+names(geneID2GO_multiple) <- geneNames_multiple
+View(geneList)
+View(tail(geneList_multiple))
+View(geneNames_multiple)
+#View(geneNames_loop)
+#View(geneID2GO_loop)
+levels(geneList_multiple)
+#[1] "1" "2"
+#rename levels to 0 and 1:
+levels(geneList_multiple)[levels(geneList_multiple)=="1"] <- "0"
+levels(geneList_multiple)[levels(geneList_multiple)=="2"] <- "1"
+levels(geneList_multiple)
+#[1] "0" "1"
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList_multiple,annot = annFUN.gene2GO, gene2GO = geneID2GO_multiple)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+
+allRes[,11] <- as.character(allRes[,11])
+write.table(allRes, "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/GO_missing_over_50.txt", sep = "\t", quote = F, row.names = F)
+```
+
+
+would also like to run: all missing together
+- hold off on moved since might change definition
+- also do under 50th
+
+Lets list out all the go enrichments I want to perform in my 30 accessions, well lets leave col-0 out of this:
+
+- genes missing
+- genes moved
+- genes moved that still have atac overlap
+
+what do I need to run this?
+a data frame that lists all genes and coded as a zero or 1 for enrichment test
+- topgo object that I had earlier which gives go terms for all thaliana genes
+
+
+Missing
+- multiple thaliana gene sets in reference
+```{r}
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+list_of_files <- file.names.missing
+
+accession_list <- gsub('_missing.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+
+#####Getting top hits
+#uniq_list_cns <- unique(as.vector(combined_df$CNS))
+##chr [1:1524]
+##just want to tag onto combined_df "Acc_count"
+##no that wouldn't work because things would be written multiple times
+##alright, simple df, "CNS" "Acc_count"
+#cns_acc_count <- data.frame("CNS"=character(),
+#                           "Acc_count"=numeric())
+#for (i in uniq_list_cns) {
+#  loop_rep_df <- combined_df[which(grepl(i,combined_df$CNS)),]
+#  loop_acc_count <- data.frame("CNS"=i,
+#                              "Acc_count"=nrow(loop_rep_df))
+#  cns_acc_count <- rbind(cns_acc_count,loop_acc_count)
+#  rm(loop_acc_count,loop_rep_df)
+#}
+
+
+#Need to get to a factored list..
+#Hmm make separate factored lists then concatenate probably easier
+
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+#this is where it gets interesting, need to factor out as many times as found in genome... I think will just do per genome basis, then combine
+#generate the at_cns_missing object for every genome
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+
+geneList_multiple=factor()
+geneNames_multiple <- character()
+geneNames <- names(geneID2GO)
+geneID2GO_multiple=list()
+
+#In this loop, supposed to loop through accessions, but if looping through cns think how to do that instead
+#need to loop through accessions
+#make unique list of accessions
+uniq_acc_list <- unique(as.vector(combined_df$Accession))
+#i <- uniq_acc_list[1]
+count <- 1
+
+#####Top hits
+#top_list_cns <- as.vector(cns_acc_count[which(cns_acc_count$Acc_count >= 9),]$CNS)
+
+
+for (i in uniq_acc_list) {
+  #only look at the current accession, take a unique list of CNS
+  #umm what if multiple per gene, we are not capturing that
+  #to do that would have to have new geneNames object repping genes
+  #according to their representation in CNS list
+  #ugh that might be the better way to do it, consider trying this
+  list_cns <- unique(as.vector(combined_df[grepl(i,combined_df$Accession),]$CNS))
+  #####top hits
+  #list_cns <- intersect(list_cns,top_list_cns)
+  #length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+  gene_list_missing <- gsub("^.*_","",list_cns)
+  at_cns_missing <- as.data.frame(gene_list_missing)
+  geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+  #change gene names for each iteration so you don't break weight01Fisher algorithm
+  geneNames_loop <- paste(geneNames, count, sep = "_")
+  geneNames_multiple <- c(geneNames_multiple, geneNames_loop)
+  #also need to change the name in the corresponding geneID2GO_multiple structure
+  geneID2GO_loop <- geneID2GO
+  names(geneID2GO_loop) <- geneNames_loop
+  geneID2GO_multiple <- c(geneID2GO_multiple, geneID2GO_loop)
+  #str(geneList)
+  #add geneList to multiple gene list
+  geneList_multiple <- append(geneList_multiple,geneList)
+  #cleanup
+  count <- count + 1
+  rm(geneList,at_cns_missing,gene_list_missing,list_cns,i,geneNames_loop,geneID2GO_loop)
+}
+geneList_multiple <- factor(as.integer(geneList_multiple))
+names(geneList_multiple) <- geneNames_multiple
+names(geneID2GO_multiple) <- geneNames_multiple
+#View(geneList)
+#View(tail(geneList_multiple))
+#View(geneNames_multiple)
+#View(geneNames_loop)
+#View(geneID2GO_loop)
+levels(geneList_multiple)
+#[1] "1" "2"
+#rename levels to 0 and 1:
+levels(geneList_multiple)[levels(geneList_multiple)=="1"] <- "0"
+levels(geneList_multiple)[levels(geneList_multiple)=="2"] <- "1"
+levels(geneList_multiple)
+#[1] "0" "1"
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList_multiple,annot = annFUN.gene2GO, gene2GO = geneID2GO_multiple)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_ar_wtd_mi.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_ar_wtd_mi.csv", sep = ",")
+
+write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_cr_wtd_mi.csv", sep = ",")
+write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_cr_wtd_mi.csv", sep = ",")
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_ar_wtd_mi_top.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_ar_wtd_mi_top.csv", sep = ",")
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_cr_wtd_mi_top.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_cr_wtd_mi_top.csv", sep = ",")
+
+#save table
+#write.table(allRes.sig,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_table_missing_cns.txt", quote = F,sep = ",")
+
+```
+
+now to do the same for moved
+- multiple thaliana gene sets in reference
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.moved <- dir(path.moved, pattern="SRR.*moved.txt", full.names = T)
+list_of_files <- file.names.moved
+
+accession_list <- gsub('_moved.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+
+#####Getting top hits
+#uniq_list_cns <- unique(as.vector(combined_df$CNS))
+##chr [1:1524]
+##just want to tag onto combined_df "Acc_count"
+##no that wouldn't work because things would be written multiple times
+##alright, simple df, "CNS" "Acc_count"
+#cns_acc_count <- data.frame("CNS"=character(),
+#                            "Acc_count"=numeric())
+#for (i in uniq_list_cns) {
+#  loop_rep_df <- combined_df[which(grepl(i,combined_df$CNS)),]
+#  loop_acc_count <- data.frame("CNS"=i,
+#                              "Acc_count"=nrow(loop_rep_df))
+#  cns_acc_count <- rbind(cns_acc_count,loop_acc_count)
+#  rm(loop_acc_count,loop_rep_df)
+#}
+
+
+#Need to get to a factored list..
+#Hmm make separate factored lists then concatenate probably easier
+
+# genrate list of genes of interest (The list you want to test for enrichment)
+#get list of interesting genes off Anna, for now just take the first hundred genes in the other file
+#this is where it gets interesting, need to factor out as many times as found in genome... I think will just do per genome basis, then combine
+#generate the at_cns_missing object for every genome
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+
+
+geneList_multiple=factor()
+geneNames_multiple <- character()
+geneNames <- names(geneID2GO)
+geneID2GO_multiple=list()
+
+#In this loop, supposed to loop through accessions, but if looping through cns think how to do that instead
+#need to loop through accessions
+#make unique list of accessions
+uniq_acc_list <- unique(as.vector(combined_df$Accession))
+#i <- uniq_acc_list[1]
+count <- 1
+#real quick, run on just 3 accessions and compare the number expected
+#uniq_acc_list <- uniq_acc_list[1:3]
+#top_list_cns <- as.vector(cns_acc_count[which(cns_acc_count$Acc_count >= 16),]$CNS)
+
+for (i in uniq_acc_list) {
+  #only look at the current accession, take a unique list of CNS
+  #umm what if multiple per gene, we are not capturing that
+  #to do that would have to have new geneNames object repping genes
+  #according to their representation in CNS list
+  #ugh that might be the better way to do it, consider trying this
+  list_cns <- unique(as.vector(combined_df[grepl(i,combined_df$Accession),]$CNS))
+  #####top hits
+  #list_cns <- intersect(list_cns,top_list_cns)
+  #length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+  gene_list_missing <- gsub("^.*_","",list_cns)
+  at_cns_missing <- as.data.frame(gene_list_missing)
+  geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+  #change gene names for each iteration so you don't break weight01Fisher algorithm
+  geneNames_loop <- paste(geneNames, count, sep = "_")
+  geneNames_multiple <- c(geneNames_multiple, geneNames_loop)
+  #also need to change the name in the corresponding geneID2GO_multiple structure
+  geneID2GO_loop <- geneID2GO
+  names(geneID2GO_loop) <- geneNames_loop
+  geneID2GO_multiple <- c(geneID2GO_multiple, geneID2GO_loop)
+  #str(geneList)
+  #add geneList to multiple gene list
+  geneList_multiple <- append(geneList_multiple,geneList)
+  #cleanup
+  count <- count + 1
+  rm(geneList,at_cns_missing,gene_list_missing,list_cns,i,geneNames_loop,geneID2GO_loop)
+}
+geneList_multiple <- factor(as.integer(geneList_multiple))
+names(geneList_multiple) <- geneNames_multiple
+names(geneID2GO_multiple) <- geneNames_multiple
+#View(geneList)
+#View(tail(geneList_multiple))
+#View(geneNames_multiple)
+#View(geneNames_loop)
+#View(geneID2GO_loop)
+levels(geneList_multiple)
+#[1] "1" "2"
+#rename levels to 0 and 1:
+levels(geneList_multiple)[levels(geneList_multiple)=="1"] <- "0"
+levels(geneList_multiple)[levels(geneList_multiple)=="2"] <- "1"
+levels(geneList_multiple)
+#[1] "0" "1"
+
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList_multiple,annot = annFUN.gene2GO, gene2GO = geneID2GO_multiple)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_ar_wtd_mo.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_ar_wtd_mo.csv", sep = ",")
+
+write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_cr_wtd_mo.csv", sep = ",")
+write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_cr_wtd_mo.csv", sep = ",")
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_ar_wtd_mo_top.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_ar_wtd_mo_top.csv", sep = ",")
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_cr_wtd_mo_top.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_cr_wtd_mo_top.csv", sep = ",")
+
+##save table
+#write.table(allRes.sig,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_table_moved_cns.txt", quote = F,sep = ",")
+##save all res to compare number expected:
+#write.table(allRes,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_table_moved_cns_all_res.txt", quote = F,sep = ",")
+```
+
+Missing
+- unique set
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+list_of_files <- file.names.missing
+
+accession_list <- gsub('_missing.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+
+#####Getting top hits
+#uniq_list_cns <- unique(as.vector(combined_df$CNS))
+##chr [1:1524]
+##just want to tag onto combined_df "Acc_count"
+##no that wouldn't work because things would be written multiple times
+##alright, simple df, "CNS" "Acc_count"
+#cns_acc_count <- data.frame("CNS"=character(),
+#                            "Acc_count"=numeric())
+#for (i in uniq_list_cns) {
+#  loop_rep_df <- combined_df[which(grepl(i,combined_df$CNS)),]
+#  loop_acc_count <- data.frame("CNS"=i,
+#                              "Acc_count"=nrow(loop_rep_df))
+#  cns_acc_count <- rbind(cns_acc_count,loop_acc_count)
+#  rm(loop_acc_count,loop_rep_df)
+#}
+
+#Need to get to a factored list..
+
+
+
+
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+
+geneList=factor()
+geneNames <- names(geneID2GO)
+
+list_cns <- unique(as.vector(combined_df$CNS))
+#length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+gene_list_missing <- gsub("^.*_","",list_cns)
+at_cns_missing <- as.data.frame(gene_list_missing)
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneID2GO) <- geneNames
+names(geneList) <- geneNames
+
+levels(geneList)
+#[1] "0" "1"
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+View(allRes)
+
+#save table
+#write.table(allRes.sig,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_table_missing_cns_unique.txt", quote = F,sep = ",")
+
+#save all
+#write.table(allRes[,1:10],file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_table_missing_cns_unique_allRes.txt", quote = F,sep = ",")
+
+#View list of genes for that enriched go term:
+#View(allRes[1,11])
+#list_sig_missing <- allRes[1, 11][["GO:0006355"]]
+#####This code block for:
+#####- ar_utd_mi
+#####- cr_utd_mi
+
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_ar_utd_mi.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_ar_utd_mi.csv", sep = ",")
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_cr_utd_mi.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_cr_utd_mi.csv", sep = ",")
+```
+
+Moved
+- unique set
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.moved <- dir(path.moved, pattern="SRR.*moved.txt", full.names = T)
+list_of_files <- file.names.moved
+
+#break
+
+accession_list <- gsub('_moved.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+#Need to get to a factored list..
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+
+geneList=factor()
+geneNames <- names(geneID2GO)
+
+list_cns <- unique(as.vector(combined_df$CNS))
+#length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+gene_list <- gsub("^.*_","",list_cns)
+at_cns <- as.data.frame(gene_list)
+geneList <- factor(as.integer(geneNames%in%at_cns[,1]))
+names(geneID2GO) <- geneNames
+names(geneList) <- geneNames
+
+levels(geneList)
+#[1] "0" "1"
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns[,1]]
+}))
+
+View(allRes.sig)
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_ar_utd_mo.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_ar_utd_mo.csv", sep = ",")
+
+write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_cr_utd_mo.csv", sep = ",")
+write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_cr_utd_mo.csv", sep = ",")
+
+
+#save table
+#write.table(allRes.sig,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_table_moved_cns_unique.txt", quote = F,sep = ",")
+
+#list_sig_moved <- allRes[1, 11][["GO:0006355"]]
+#write.table(list_sig_moved, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_list_sig_moved.txt")
+
+#load in missing to check overlap
+#list_sig_missing <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_list_sig_missing.txt")
+#list_sig_missing <- as.vector(list_sig_missing$x)
+
+#list_sig_moved <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_list_sig_moved.txt")
+#list_sig_moved <- as.vector(list_sig_moved$x)
+
+#overlap <- intersect(list_sig_moved,list_sig_missing)
+#overlap_len <- length(overlap)
+#70.. thats a good bit ya know what would be awesome.. if not a single one of these overlapped an atac peak in any accession... hmmm loop through overlap outputs, both moved and all.. yes
+#save as comma separated list
+#overlap_matrix <- matrix(overlap,overlap_len,1)
+#write.table(overlap_matrix,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/sig_go_term")
+```
+
+Missing
+- over rep
+- single thaliana rep
+- ie subset unique set to only those represented in multiple accessions
+```{r}
+#make histogram of cns sharing, how to best, count how many times, load in first:
+rm(list=ls(all=TRUE))
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+list_of_files <- file.names.missing
+
+accession_list <- gsub('_missing.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+#need for each CNS, count the number of accessions it is missing in
+#get unique list, then count how many times appears in full list:
+uniq_list_cns <- unique(as.vector(combined_df$CNS))
+#chr [1:1524]
+#just want to tag onto combined_df "Acc_count"
+#no that wouldn't work because things would be written multiple times
+#alright, simple df, "CNS" "Acc_count"
+cns_acc_count <- data.frame("CNS"=character(),
+                            "Acc_count"=numeric())
+for (i in uniq_list_cns) {
+  loop_rep_df <- combined_df[which(grepl(i,combined_df$CNS)),]
+  loop_acc_count <- data.frame("CNS"=i,
+                              "Acc_count"=nrow(loop_rep_df))
+  cns_acc_count <- rbind(cns_acc_count,loop_acc_count)
+  rm(loop_acc_count,loop_rep_df)
+}
+
+#make histogram
+#library(ggplot2)
+#ecdf_fun <- function(x,perc) ecdf(x)(perc)
+#missing_hist <- cns_acc_count %>%
+#  ggplot(aes(x=cns_acc_count$Acc_count)) +
+#  geom_histogram() +
+#  geom_vline(xintercept = quantile(cns_acc_count$Acc_count,0.9)) +
+#  geom_text(aes(x=quantile(cns_acc_count$Acc_count,0.9), label=paste0("90th percentile = ",quantile(cns_acc_count$Acc_count,0.9)), y = length(cns_acc_count$CNS)/2)) +
+#  ggtitle("Histogram of number of accessions each CNS is Missing in")
+#missing_hist
+#?quantile()
+#save plot
+#png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/missing_hist.png")
+#  plot(missing_hist)
+#  dev.off()
+##90th percentile is at 9... but looks like have a decent amount above 15 (~50% of accessions), eh lets do 9 as cutoff
+
+#Need to get to a factored list..
+#Change to factored list
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+#Change to only genes with a CNS
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+
+geneList=factor()
+geneNames <- names(geneID2GO)
+
+#list_cns <- unique(as.vector(combined_df$CNS))
+list_cns <- unique(as.vector(cns_acc_count[which(cns_acc_count$Acc_count >= 9),]$CNS))
+#chr [1:164]
+#length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+gene_list_missing <- gsub("^.*_","",list_cns)
+at_cns_missing <- as.data.frame(gene_list_missing)
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneID2GO) <- geneNames
+names(geneList) <- geneNames
+
+levels(geneList)
+#[1] "0" "1"
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_ar_utd_mi_top.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_ar_utd_mi_top.csv", sep = ",")
+
+write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_sig_res_cr_utd_mi_top.csv", sep = ",")
+write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_all_res_cr_utd_mi_top.csv", sep = ",")
+
+
+```
+
+
+Moved
+- over rep
+- single thaliana rep
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.moved <- dir(path.moved, pattern="SRR.*moved.txt", full.names = T)
+list_of_files <- file.names.moved
+
+accession_list <- gsub('_moved.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+#make histogram
+uniq_list_cns <- unique(as.vector(combined_df$CNS))
+cns_acc_count <- data.frame("CNS"=character(),
+                            "Acc_count"=numeric())
+for (i in uniq_list_cns) {
+  loop_rep_df <- combined_df[which(grepl(i,combined_df$CNS)),]
+  loop_acc_count <- data.frame("CNS"=i,
+                              "Acc_count"=nrow(loop_rep_df))
+  cns_acc_count <- rbind(cns_acc_count,loop_acc_count)
+  rm(loop_acc_count,loop_rep_df)
+}
+
+#library(ggplot2)
+#ecdf_fun <- function(x,perc) ecdf(x)(perc)
+#moved_hist <- cns_acc_count %>%
+#  ggplot(aes(x=cns_acc_count$Acc_count)) +
+#  geom_histogram() +
+#  geom_vline(xintercept = quantile(cns_acc_count$Acc_count,0.9)) +
+#  geom_text(aes(x=quantile(cns_acc_count$Acc_count,0.9), label=paste0("90th percentile = ",quantile(cns_acc_count$Acc_count,0.9)), y = length(cns_acc_count$CNS)/2)) +
+#  ggtitle("Histogram of number of accessions each CNS is Moved in")
+#moved_hist
+##?quantile()
+##save plot
+#png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/moved_hist.png")
+#  plot(moved_hist)
+#  dev.off()
+##90th percentile is at 16
+
+
+
+#Need to get to a factored list..
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+#Change to only genes with a CNS
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+  
+geneList=factor()
+geneNames <- names(geneID2GO)
+
+#list_cns <- unique(as.vector(combined_df$CNS))
+list_cns <- unique(as.vector(cns_acc_count[which(cns_acc_count$Acc_count >= 16),]$CNS))
+#chr [1:164]
+#length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+gene_list <- gsub("^.*_","",list_cns)
+at_cns <- as.data.frame(gene_list)
+geneList <- factor(as.integer(geneNames%in%at_cns[,1]))
+names(geneID2GO) <- geneNames
+names(geneList) <- geneNames
+
+levels(geneList)
+#[1] "0" "1"
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns[,1]]
+}))
+
+View(allRes.sig)
+#View(allRes)
+
+#write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_ar_utd_mo_top.csv", sep = ",")
+#write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_ar_utd_mo_top.csv", sep = ",")
+
+write.table(allRes.sig, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_sig_res_cr_utd_mo_top.csv", sep = ",")
+write.table(allRes[,1:10], file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_all_res_cr_utd_mo_top.csv", sep = ",")
+
+#save table
+#write.table(allRes.sig,file = #"/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_table_moved_cns_unique.txt", quote = F,sep = ",")
+
+#list_sig_moved <- allRes[1, 11][["GO:0006355"]]
+#write.table(list_sig_moved, file = #"/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_list_sig_moved.txt")
+
+#load in missing to check overlap
+#list_sig_missing <- read.table(file = #"/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/go_list_sig_missing.txt")
+#list_sig_missing <- as.vector(list_sig_missing$x)
+
+#list_sig_moved <- read.table(file = #"/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/go_list_sig_moved.txt")
+#list_sig_moved <- as.vector(list_sig_moved$x)
+
+#overlap <- intersect(list_sig_moved,list_sig_missing)
+#overlap_len <- length(overlap)
+#70.. thats a good bit ya know what would be awesome.. if not a single one of these overlapped an atac peak in any accession... hmmm loop through overlap outputs, both moved and all.. yes
+#save as comma separated list
+#overlap_matrix <- matrix(overlap,overlap_len,1)
+#write.table(overlap_matrix,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/sig_go_term")
+
+```
+
+
+
+Missing, just those CNS found in missing but not unique
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+#hmm how to make that data frame
+#load in just lists of everything into a vector
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+list_of_files <- file.names.missing
+
+accession_list <- gsub('_missing.txt','',list_of_files) %>%
+  gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep//','',.)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+max_number <- length(list_of_files)
+
+for (i in 1:max_number) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:max_number) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+#now we have combined_df that has first column cns and second column the accession in which it is missing
+
+#####Getting top hits
+#uniq_list_cns <- unique(as.vector(combined_df$CNS))
+##chr [1:1524]
+##just want to tag onto combined_df "Acc_count"
+##no that wouldn't work because things would be written multiple times
+##alright, simple df, "CNS" "Acc_count"
+#cns_acc_count <- data.frame("CNS"=character(),
+#                            "Acc_count"=numeric())
+#for (i in uniq_list_cns) {
+#  loop_rep_df <- combined_df[which(grepl(i,combined_df$CNS)),]
+#  loop_acc_count <- data.frame("CNS"=i,
+#                              "Acc_count"=nrow(loop_rep_df))
+#  cns_acc_count <- rbind(cns_acc_count,loop_acc_count)
+#  rm(loop_acc_count,loop_rep_df)
+#}
+
+#Need to get to a factored list..
+
+
+
+
+
+library("topGO", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_go_list.txt")
+#geneID2GO <- readMappings(file= "/Users/alanyocca/Documents/02_fvesca_popgen/02_GO/at_cns_go_list.txt")
+
+geneList=factor()
+geneNames <- names(geneID2GO)
+
+list_cns <- unique(as.vector(combined_df$CNS))
+#just the missing ones that are not also moved in another accession
+#mi_only_uniq_cns <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_mi_only.txt")
+#mi_only_uniq_gene <-  gsub('.*_','',mi_only_uniq_cns$V1)
+#list_cns <- unique(as.vector(mi_only_uniq_gene))
+
+#length(combined_df[grepl(i,combined_df$Accession),]$CNS)
+gene_list_missing <- gsub("^.*_","",list_cns)
+at_cns_missing <- as.data.frame(gene_list_missing)
+geneList <- factor(as.integer(geneNames%in%at_cns_missing[,1]))
+names(geneID2GO) <- geneNames
+names(geneList) <- geneNames
+
+levels(geneList)
+#[1] "0" "1"
+
+# build topGo object
+GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#GOdata <- new("topGOdata", ontology = "BP", allGenes = geneList,annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#
+allGo = usedGO(object= GOdata)
+
+##
+#get results using the weight01 and fisher algorithims
+resultFisher_weight01 <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+resultFisher_classic <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+# generate table of results
+allRes <- GenTable(GOdata, classicFisher= resultFisher_classic, weight01Fisher = resultFisher_weight01, orderBy ="weight01Fisher", ranksOf = "classicFisher",topNodes= length(allGo))
+allRes$fdr <- p.adjust(allRes$weight01Fisher,method="fdr")
+allRes$bonf <- p.adjust(allRes$weight01Fisher,method="bonferroni")
+allRes.sig <- allRes[which(allRes$bonf < 0.05),]
+# add list of genes associated with significant GO terms
+allRes$genes <- (sapply(allRes$GO.ID, function(x)
+{
+  genes<-genesInTerm(GOdata, x)
+  genes[[1]][genes[[1]] %in% at_cns_missing[,1]]
+}))
+
+View(allRes.sig)
+```
+
+Want to make a tidy table of how many significant results there were..
+tempted to just manually type everything out,
+Yea will be way faster than spending forever making a loop that will only be useful here
+
+```{r}
+#make individual vectors
+#columns:
+#1: Reference set (AT or CNS)
+#2: Weighted? (Yes, No)
+#3: Type (missing, moved)
+#4: Slice (all, Top)
+#5: Number significant
+ar_utd_mo_top <- c("AT", "No", "Moved", "Top", 0)
+ar_utd_mo <- c("AT", "No", "Moved", "All", 1)
+cr_utd_mo_top <- c("CNS", "No", "Moved", "Top", 0)
+cr_utd_mo <- c("CNS", "No", "Moved", "All", 0)
+ar_wtd_mo_top <- c("AT", "Yes", "Moved", "Top", 291)
+ar_wtd_mo <- c("AT", "Yes", "Moved", "All", 410)
+cr_wtd_mo_top <- c("CNS", "Yes", "Moved", "Top", 237)
+cr_wtd_mo <- c("CNS", "Yes", "Moved", "All", 286)
+ar_utd_mi_top <- c("AT", "No", "Missing", "Top", 1)
+ar_utd_mi <- c("AT", "No", "Missing", "All", 1)
+cr_utd_mi_top <- c("CNS", "No", "Missing", "Top", 0)
+cr_utd_mi <- c("CNS", "No", "Missing", "All", 0)
+ar_wtd_mi_top <- c("AT", "Yes", "Missing", "Top", 112)
+ar_wtd_mi <- c("AT", "Yes", "Missing", "All", 132)
+cr_wtd_mi_top <- c("CNS", "Yes", "Missing", "Top", 102)
+cr_wtd_mi <- c("CNS", "Yes", "Missing", "All", 99)
+#1: Reference set (AT or CNS)
+#2: Weighted? (Yes, No)
+#3: Type (missing, moved)
+#4: Slice (all, Top)
+#5: Number significant
+#combine,
+tidy_go_sig_count_table <- data.frame(rbind(ar_utd_mo_top,
+ar_utd_mo,cr_utd_mo_top,cr_utd_mo,ar_wtd_mo_top,ar_wtd_mo,cr_wtd_mo_top,cr_wtd_mo,ar_utd_mi_top,ar_utd_mi,cr_utd_mi_top,cr_utd_mi,ar_wtd_mi_top,ar_wtd_mi,cr_wtd_mi_top,cr_wtd_mi))
+
+tgsct_names <- c("Reference_Set", "Weighted?", "Type", "Slice", "Num_Sig")
+colnames(tidy_go_sig_count_table) <- tgsct_names
+#tidy?
+
+#now to make venn diagram, just make table for now
+#hacky way, probably won't work after today:
+uniq_missing_list <- list_cns
+uniq_moved_list <- list_cns
+
+overlap <- intersect(uniq_missing_list,uniq_moved_list)
+mi_only <-setdiff(uniq_missing_list,uniq_moved_list)
+mo_only <- setdiff(uniq_moved_list,uniq_missing_list)
+length(mi_only)
+venn_diagram_table <- data.frame("Missing_only" = length(mi_only),
+                                 "Overlap" = length(overlap),
+                                 "Moved_only" = length(mo_only))
+#probability of at least that many CNS overlapping the two sets:
+#Randomly draw two sets of genes:
+#- 5k long
+# 1500 long
+
+#what is the expected overlap?
+prob_missing <- 1524/62995
+prob_moved <- 4801/62995
+prob_missing
+#prob of at least 118 overlapping
+bin_cd
+```
+
+size distribution of mi, mo, and overlap overlain, try and see differences
+
+```{r}
+#have:
+#- uniq_missing_list
+#- uniq_moved_list
+#cns_length_dist
+#- overlap
+#- mi_only
+#- mo_only
+
+#for the density plot... ahh get lengths of them all with another column annotating them
+#need to find cns length distribution though...
+#Think I have some, but need to annotate each length,
+#so would be best to get:
+#Length, CNS then can use CNS to make third annotation column
+#shit all we gotta do then is work on the big CNS file
+#hmm know I have a tmp perl file, could probs do awk.. naw check for perl script
+
+#load in CNS length distance table
+cns_all_length <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_base_length.txt", sep = "\t")
+
+#for each vector we got, extract part of that data frame, then add the partition tag, then combine all of them
+#make list of vectors and loop through them? naw, hand code each so can add nice readable tag
+
+#first lets just do missing and moved only lists:
+#this was done running earlier code
+#list_cns_mo <- list_cns
+#list_cns_mi <- list_cns
+
+#save so can use later:
+#write.table(list_cns_mo, file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_moved.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+#write.table(list_cns_mi, file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_missing.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+
+#reload:
+#list_cns_mo <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_moved.txt", sep = "\t")
+#list_cns_mi <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_missing.txt", sep = "\t")
+##stupid row name shit
+#list_cns_mo <- as.vector(list_cns_mo[,2])
+#list_cns_mi <- as.vector(list_cns_mi[,2])
+
+##overlap / specific sets
+#overlap <- intersect(list_cns_mo,list_cns_mi)
+#mi_only <-setdiff(list_cns_mi,list_cns_mo)
+#mo_only <- setdiff(list_cns_mo,list_cns_mi)
+
+#nice, save for later:
+write.table(overlap, file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_overlap.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+write.table(mi_only, file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_mi_only.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+write.table(mo_only, file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_mo_only.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+
+#now we have our vectors of each type, we need a master df with CNS names and lengths
+cns_lengths <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/22_random/01_data/cns_base_length.txt")
+#add names
+cns_lengths_names <- c("CNS", "Length")
+colnames(cns_lengths) <- cns_lengths_names
+
+##for each of our types, add to new DF:
+#cns_length_type <- data.frame("CNS" = character(),
+#                              "Length" = numeric(),
+#                              "Type" = character())
+
+#going to be a little messy:
+overlap_length <- cns_lengths[which(cns_lengths[,1] %in% overlap),] 
+#make vector of type
+overlap_type <- rep("Overlap",nrow(overlap_length))
+overlap_length_type <- cbind(overlap_length,overlap_type)
+cns_length_type_names <- c("CNS", "Length", "Type")
+colnames(overlap_length_type) <- cns_length_type_names
+#same for the others
+
+#missing:
+mi_length <- cns_lengths[which(cns_lengths[,1] %in% list_cns_mi),] 
+#make vector of type
+mi_type <- rep("Missing",nrow(mi_length))
+mi_length_type <- cbind(mi_length,mi_type)
+#cns_length_type_names <- c("CNS", "Length", "Type")
+colnames(mi_length_type) <- cns_length_type_names
+
+#moved:
+mo_length <- cns_lengths[which(cns_lengths[,1] %in% list_cns_mo),] 
+#make vector of type
+mo_type <- rep("Moved",nrow(mo_length))
+mo_length_type <- cbind(mo_length,mo_type)
+#cns_length_type_names <- c("CNS", "Length", "Type")
+colnames(mo_length_type) <- cns_length_type_names
+
+#combine them all:
+all_length_type <- rbind(overlap_length_type,mi_length_type,mo_length_type)
+
+#histogram time
+library(ggplot2)
+library(tidyverse)
+cns_length_type_hist <- all_length_type %>%
+  ggplot(aes(x=all_length_type$Length, fill=all_length_type$Type)) +
+  geom_density(alpha = 0.5) 
+#  geom_dotplot(binaxis = 'x', dotsize = .2, binwidth=1) +
+#  ylim(0,0.15)
+#Not saving with dots, I think it doesn't add much
+cns_length_type_hist
+
+#make one zooming in:
+cns_length_type_hist_zoom <- all_length_type %>%
+  ggplot(aes(x=all_length_type$Length, fill=all_length_type$Type)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,100) +
+  geom_dotplot(binaxis = 'x', dotsize = .06, binwidth=1) +
+  ylim(0,0.15)
+cns_length_type_hist_zoom
+#I think the dots work with it zoomed in though, so keeping that
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/22_random/cns_length_type_den.png")
+  plot(cns_length_type_hist)
+  dev.off()
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/22_random/cns_length_type_den_zoom.png")
+  plot(cns_length_type_hist_zoom)
+  dev.off()
+
+print("hello")
+
+
+```
+
+testing enrichment on the genes that CNS moved to

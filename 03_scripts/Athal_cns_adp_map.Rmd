@@ -1,0 +1,258 @@
+---
+title: "Athal_cns_adp_map"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+Play around with mapping out locations of Arabidopsis thaliana
+
+351		Western Europe 77.3%
+687		Germany			100%
+991		Southern Sweden	99.9%
+
+5353	Western Europe	100%
+5950	Central Europe	100%
+6911	Relic			68.6%
+6920	Germany			48%
+6933	Iberian Penn.	99.8%
+6976	Central Europe	100%
+7002	Germany 		60.8%
+7081	Iberian Penn.	92.2%
+7183	Central Asia	100%
+9100	Italy, Balkans	100%
+9125	Central Asia	86%
+9673	Central Europe	100%
+9764	Italy, Balkans	56.2%
+14312	Central Asia	86.6%
+c(351,687,991,5353,5950,6911,6920,6933,6976,7002,7081,7183,9100,9125,9673,9764,14312)
+
+```{r}
+rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/")
+
+library(ggplot2)
+library(tidyverse)
+#install.packages("ggmap")
+library(ggmap)
+#install.packages("ggrepel")
+library(ggrepel)
+
+#lets get our set of latitudes and longitudes into matrix?? dont know if it matters
+#Third column as id
+long_lat_eco <- read.csv("/Users/alanyocca/Documents/01_athal_cns/1001_lat_long_eco.csv")
+View(head(long_lat_eco))
+
+#extract the diversity panel, if get this to work go back and add Gan_11 accession
+
+adp_ecoid <- c(351,687,991,5353,5950,6911,6920,6933,6976,7002,7081,7183,9100,9125,9673,9764,14312)
+long_lat_eco_adp <- long_lat_eco[long_lat_eco$tg_ecotypeid %in% adp_ecoid,]
+
+#ooo weeee
+#credit to stackoverflow MattBaggs
+
+center = c(min(long_lat_eco_adp$longitude)+(max(long_lat_eco_adp$longitude)-min(long_lat_eco_adp$longitude))/2,min(long_lat_eco_adp$latitude)+(max(long_lat_eco_adp$latitude)-min(long_lat_eco_adp$latitude))/2)
+
+#tmp_min_lat <- min(long_lat_eco$latitude, na.rm = T)
+#which(is.na(long_lat_eco$latitude))
+#View(long_lat_eco[440,])
+#class(long_lat_eco$latitude)
+
+adp_map <- get_map(location = center ,zoom = 2, maptype = "roadmap", source = "google")
+
+adp_plot <- ggmap(adp_map)
+
+adp_plot_labeled <- adp_plot +
+  geom_text(data=long_lat_eco_adp, aes(x = longitude, y = latitude, label = tg_ecotypeid), colour="white",size=4,hjust=0, vjust=0) + 
+    theme(legend.position = "none")
+
+adp_plot_labeled
+
+#going to play around with it, leave everything above in tact, the rest I am going to keep changing until I like it or get bored
+
+#first things first, change the center, shift east and north
+#I had lat long switched
+
+#next problem, not great showing one north american location so half the graph is atlantic ocean
+#solution? center without it, make second graph for it later once decide on specs, overlay that one somewhere as a smaller box
+long_lat_eco_adp_nona <- long_lat_eco_adp[-2,]
+new_center <- c(min(long_lat_eco_adp_nona$longitude)+(max(long_lat_eco_adp_nona$longitude)-min(long_lat_eco_adp_nona$longitude))/2,min(long_lat_eco_adp_nona$latitude)+(max(long_lat_eco_adp_nona$latitude)-min(long_lat_eco_adp_nona$latitude))/2)
+
+adp_map <- get_map(location = new_center ,zoom = 3, maptype = "satellite", source = "google")
+
+adp_plot <- ggmap(adp_map)
+adp_plot
+
+#colors to choose between:
+#deepskyblue1
+adp_plot_labeled <- adp_plot +
+  geom_label_repel(data=long_lat_eco_adp_nona, aes(x = longitude, y = latitude, label = tg_ecotypeid), fill = "red", colour = "white",size=4, direction = "both", nudge_y = 1) + 
+    theme(legend.position = "none")
+
+adp_plot_labeled
+
+# <- p + geom_point(data=data,aes(x=lon, y=lat),colour="white",size=2)
+adp_plot_point <- adp_plot_labeled +
+  geom_point(data = long_lat_eco_adp_nona, aes(x = longitude, y = latitude), colour="red",size=1)
+
+adp_plot_point
+
+#i kind of want to show genetic diversity with this too, but for now lets slap on poster, something we can change tomorrow night
+#save as pdf, then make second one, then figure out how to overlay
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/map_adp_07_18.pdf", width = 12, height = 6)
+  plot(adp_plot_point)
+  dev.off()
+
+```
+
+minimal code to create data table to add Gan accessions to, screw it, just hand add to the vector of ecotype ids?? hmmm no should do separately so an confidently add another column
+
+```{r}
+rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/")
+
+long_lat_eco <- read.csv("/Users/alanyocca/Documents/01_athal_cns/1001_lat_long_eco.csv")
+
+adp_ecoid <- c(351,687,991,5353,5950,6911,6920,6933,6976,7002,7081,7183,9100,9125,9673,9764,14312)
+long_lat_eco_adp <- long_lat_eco_acc[long_lat_eco_acc$tg_ecotypeid %in% adp_ecoid,]
+
+######add gan accessions here
+
+##load in awked file that contains the CSS stock number, that is how we will bridge to ecotypeID
+long_lat_eco_acc <- read.csv("/Users/alanyocca/Documents/01_athal_cns/1001_lat_long_eco_acc.csv")
+
+gan_acc <- c("Bur-0","Can-0","Ct-1","Edi-0","Kn-0","Ler-0","No-0","Oy-0","Rsch-4","Sf-2","Tsu-0","Wil-2","Ws-0","Wu-0","Zu-0")
+#CS76734
+#can't find Ler-0s,,, found it CS77020
+#well the numbers online and this file don't fit together so pull out accession name strings
+#can
+long_lat_eco_acc_gan <- long_lat_eco_acc[long_lat_eco_acc$name %in% gan_acc,]
+
+#colnames(long_lat_eco_acc_gan)
+
+Hi <- data.frame(latitude=52,longitude=5,tg_ecotypeid="169",name="Hi-0")
+Mt <- data.frame(latitude=32.34,longitude=22.46,tg_ecotypeid="261",name="Mt-0")
+Po <- data.frame(latitude=50.5,longitude=7,tg_ecotypeid="311",name="Po-0")
+
+long_lat_eco_acc_gan <- as.data.frame(rbind(long_lat_eco_acc_gan,Hi,Mt,Po,stringsAsFactors = F))
+#?rbind
+#manual lookup the others, not very descriptive
+#got em, rename thingys, add column to each specifying where they come from, ADP or GAN
+source_gan <- data.frame(source=c(rep("GAN",17)))
+source_adp <- data.frame(source=c(rep("ADP",17)))
+#add to existing data frames
+long_lat_eco_acc_gan <- as.data.frame(cbind(long_lat_eco_acc_gan,source_gan,stringsAsFactors = F))
+
+long_lat_eco_adp <- as.data.frame(cbind(long_lat_eco_adp,source_adp,stringsAsFactors = F))
+
+#make one big table
+lat_long_eco_adp_gan <- rbind(long_lat_eco_adp,long_lat_eco_acc_gan, stringsAsFactors = F)
+
+#cut out north american and japan accession for center calculation
+lat_long_eco_adp_gan <- lat_long_eco_adp_gan[-c(2,28),]
+
+#make me a map baby
+center = c(min(lat_long_eco_adp_gan$longitude)+(max(lat_long_eco_adp_gan$longitude)-min(lat_long_eco_adp_gan$longitude))/2,min(lat_long_eco_adp_gan$latitude)+(max(lat_long_eco_adp_gan$latitude)-min(lat_long_eco_adp_gan$latitude))/2)
+
+library(ggplot2)
+library(tidyverse)
+#install.packages("ggmap")
+library(ggmap)
+#install.packages("ggrepel")
+library(ggrepel)
+
+adp_gan_map <- get_map(location = center ,zoom = 3, maptype = "satellite", source = "google")
+
+adp_gan_plot <- ggmap(adp_gan_map)
+
+adp_gan_plot_labeled <- adp_gan_plot +
+  geom_label_repel(data=lat_long_eco_adp_gan, aes(fill=lat_long_eco_adp_gan$source, x = longitude, y = latitude, label = tg_ecotypeid), fill = "red", colour = "white",size=4, direction = "both", nudge_y = 1, nudge_x = 1) + 
+    theme(legend.position = "none")
+
+adp_gan_plot_labeled
+
+#adp_plot_point <- adp_plot_labeled +
+# geom_point(data = long_lat_eco_adp_nona, aes(x = #longitude, y = latitude), colour="red",size=1)
+#This is not looking good, just keep adp, add the NA to it
+```
+
+make separate map of the North American accession
+```{r}
+rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/")
+
+long_lat_eco <- read.csv("/Users/alanyocca/Documents/01_athal_cns/1001_lat_long_eco.csv")
+
+adp_ecoid <- c(687)
+long_lat_eco_adp <- long_lat_eco[long_lat_eco$tg_ecotypeid %in% adp_ecoid,]
+
+library(ggplot2)
+library(tidyverse)
+#install.packages("ggmap")
+library(ggmap)
+#install.packages("ggrepel")
+library(ggrepel)
+
+center <- c(long_lat_eco_adp[1,2],long_lat_eco_adp[1,1])
+
+adp_gan_map <- get_map(location = center ,zoom = 5, maptype = "satellite", source = "google")
+
+adp_gan_plot <- ggmap(adp_gan_map)
+
+adp_gan_plot_labeled <- adp_gan_plot +
+  geom_label_repel(data=long_lat_eco_adp, aes( x = longitude, y = latitude, label = tg_ecotypeid), fill = "red", colour = "white",size=16, direction = "both", nudge_y = 3, nudge_x = 1) + 
+    theme(legend.position = "none")
+
+adp_gan_plot_labeled
+
+adp_plot_point <- adp_gan_plot_labeled +
+  geom_point(data = long_lat_eco_adp, aes(x = longitude, y = latitude), colour="red",size=4)
+
+adp_plot_point
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/map_adp_na_07_18.pdf", width = 12, height = 6)
+  plot(adp_plot_point)
+  dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

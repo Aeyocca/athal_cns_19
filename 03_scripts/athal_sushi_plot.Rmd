@@ -1,0 +1,1267 @@
+---
+title: "athal_sushi_plot"
+output: html_document
+---
+
+#play around with sushi plot
+
+#main goal is large multipanel figure showing CNS transposition still overlapping ATAC peak, possibly showing an enriched motif near a gene that makes sense
+
+DNAse track and gene tracks
+```{r}
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("Sushi", version = "3.8")
+#sweeeeet
+
+library(Sushi)
+#sessionInfo()
+
+Sushi_data = data(package = 'Sushi')
+data(list = Sushi_data$results[,3])
+
+chrom = "chr11"
+chromstart = 1650000
+chromend = 2350000
+
+make_dnase_plot <- function(){
+  plotBedgraph(Sushi_DNaseI.bedgraph,chrom,chromstart, chromend,colorbycol = SushiColors(5)) 
+#add x axis labels, will draw stuff on top of plot, so if need to edit this,
+#rerun plotBedgraph()
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Mb') 
+#use base R functions to add y-axis
+#?mtext() == "Write Text into the Margins of a Plot"
+  mtext("Read Depth",side = 2, line = 2.75,cex = 1,font = 2)
+#?axis()
+  axis(side = 2,las=2,tcl=.5)
+}
+
+# see if I can get a gene model to overlay this atac depth chart
+#use base R to set up graphics for two stacked plots:
+#?par()
+#mfrow to get multi panel (2 rows, 1 column)
+#mar for margin sizes, vector in order bottom,left,top,rightg
+#therefore all margins will be 1 except the left (where we putting the y-axis labels)
+dev.off()
+par(mfrow=c(2,1),mar=c(1,4,1,1))
+make_dnase_plot()
+#Add in the bedgraph plot
+#print("Used above code to add atac graph as the first row figure")
+#data that came with package did not have a gene loaded in this region so add our own
+#colnames(Sushi_transcripts.bed)
+#"chrom"  "start"  "stop"   "gene"   "score"  "strand" "type"
+custom_gene <- data.frame(chrom = rep(chrom,3),
+                          start = c(1800000,2000000,2200000),
+                          stop = c(1900000,2100000,2300000),
+                          gene = rep("Custom_gene",3),
+                          score = rep(".",3),
+                          strand = rep(1,3),
+                          type = rep("exon",3))
+
+#lapply(custom_gene,class)
+custom_gene$gene = as.character(custom_gene$gene)
+
+for (i in 1:nrow(custom_gene)) {
+  print(i)
+  if (custom_gene$start[i] != 1800000) {
+    print(i)
+    custom_gene$gene[i] = paste(rep("",i), collapse = " ")
+  }
+}
+#tmp = rep("",2)
+#tmp_string = paste(tmp, collapse = "")
+
+#add as second panel
+
+plotGenes(custom_gene,chrom,chromstart,chromend,types = custom_gene$type,colorbycol = SushiColors(5), plotgenetype = "box",labeltext = T)
+#
+
+
+#clear plot
+#dev.off()
+```
+
+Zoom function
+```{r}
+library("Sushi")
+dev.off()
+Sushi_data = data(package = 'Sushi')
+data(list = Sushi_data$results[,3])
+
+#set up graphics device as 2x2 matrix, where first plot generated will take up the entire first row
+#and the second and third plot will split the bottom row:
+layout(matrix(c(1,1,2,3),2, 2, byrow = TRUE))
+#that produced a matrix that looks like:
+#1  1
+#2  3
+#set layout margins
+par(mar=c(3,4,1,1))
+
+#add first plot:
+chrom = "chr11"
+chromstart = 1900000
+chromend = 2350000
+#
+make_dnase_graph <- function(){
+  plotBedgraph(Sushi_DNaseI.bedgraph,chrom,chromstart=chromstart,
+chromend=chromend,colorbycol= SushiColors(5))
+  labelgenome(chrom,chromstart=chromstart,chromend=chromend,n=4,
+scale="Mb")
+  mtext("Read Depth",side=2,line=2.25,cex=1,font=2)
+  axis(side=2,las=2,tcl=.2)
+}
+make_dnase_graph()
+zoomregion1 = c(1955000,1960000)
+zoomregion2 = c(2279000,2284000)
+
+zoomsregion(zoomregion1,extend = c(0.01,0.13),wideextend = 0.05 ,
+offsets = c(0,0.58))
+#wideextend is how low the lines come down before being at their widest
+#offsets is the distance from left and right side of the top panel (expressed as proportion)]
+#extend is how far above the top panel and below the top panel the lines will come down
+zoomsregion(zoomregion2,extend=c(0.01,0.13),wideextend=0.05,
+offsets=c(0.58,0))
+#these commands above still add to the first plot
+#now add two zoomed regions
+plotBedgraph(Sushi_DNaseI.bedgraph,chrom,chromstart=zoomregion1[1], chromend=zoomregion1[2],colorbycol= SushiColors(5))
+
+labelgenome(chrom,chromstart=zoomregion1[1],chromend=zoomregion1[2], n=4,scale="Kb",edgeblankfraction=0.1,cex.axis=.75)
+#zoombox() adds the lines around the graph
+#cex.axis is size for numeric labels
+#edgeblankfraction is when to stop the numbers (so as not to interfere with chromosome / scale labels)
+zoombox()
+
+#
+```
+
+
+First run through with CNS:
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(Sushi)
+
+window_size = 10000
+chrom = "Chr4"
+chromstart = (845966 - window_size)
+chromend = (845979 + window_size)
+
+#data format required:
+colnames(Sushi_DNaseI.bedgraph)
+#[1] "chrom" "start" "end"   "value"
+sapply(Sushi_DNaseI.bedgraph,class)
+#    chrom     start       end     value 
+# "factor" "integer" "integer" "integer" 
+
+#load in atac genome coverage bed subset
+
+#lets get all CNS annotation instead of just the moved ones
+cns_bed <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945758_bwa_alt_3_pbj_6_rename_mx_all.bed", sep = "\t", row.names = NULL)
+#change 6th column (strand) to 1/-1
+cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+cns_bed$V6 <- gsub("+","1",cns_bed$V6)
+#need to type? not for CNS, but will need to figure out, probs do perl script for that
+#wonder if column names matter, check it out
+chrom = "Chr1"
+chromstart = 0
+chromend = 150000
+plotGenes(cns_bed,chrom,chromstart,chromend,colorbycol = SushiColors(5), plotgenetype = "box",labeltext = T)
+
+#custom_gene <- data.frame(chrom = rep(chrom,3),
+#                          start = c(1800000,2000000,2200000),
+#                          stop = c(1900000,2100000,2300000),
+#                          gene = rep("Custom_gene",3),
+#                          score = rep(".",3),
+#                          strand = rep(1,3),
+#                          type = rep("exon",3))
+#add as second panel
+#plotGenes(custom_gene,chrom,chromstart,chromend,types = custom_gene$type,colorbycol = SushiColors(5), plotgenetype = "box",labeltext = T)
+#to plot bedgraph, will need to insert a stop column
+
+#load in atac genomecov then convert to bedgraph (just copy second column)
+atac_genomecov <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945858_bwa_alt_3_masked_atac_gc_Chr4_745966_945979.bed", sep = "\t",row.names = NULL)
+stop_vect <- atac_genomecov$V2
+atac_bedgraph <- cbind(atac_genomecov,stop_vect)
+atac_bedgraph <- atac_bedgraph[,c(1,2,4,3)]
+
+#set window info:
+window_size = 10000
+chrom = "Chr4"
+chromstart = (845966 - window_size)
+chromend = (845979 + window_size)
+
+make_dnase_plot <- function(){
+  plotBedgraph(atac_bedgraph,chrom,chromstart, chromend,colorbycol = SushiColors(5)) 
+#add x axis labels, will draw stuff on top of plot, so if need to edit this,
+#rerun plotBedgraph()
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Kb') 
+#use base R functions to add y-axis
+#?mtext() == "Write Text into the Margins of a Plot"
+  mtext("Read Depth",side = 2, line = 2.75,cex = 1,font = 2)
+#?axis()
+  axis(side = 2,las=2,tcl=.5)
+}
+dev.off()
+par(mfrow=c(2,1),mar=c(1,4,1,1))
+make_dnase_plot()
+
+#add cns annotations below in same window
+cns_bed <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/tmp/SRR1945758_bwa_alt_3_pbj_6_rename_mx_all.bed", sep = "\t", row.names = NULL)
+#change 6th column (strand) to 1/-1
+cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+cns_bed$V6 <- gsub("+","1",cns_bed$V6)
+#need to type? not for CNS, but will need to figure out, probs do perl script for that
+#wonder if column names matter, check it out
+Sys.time()
+
+plotGenes(cns_bed,chrom,chromstart,chromend,colorbycol = SushiColors(5), plotgenetype = "box",labeltext = T)
+
+op <- options(digits.secs = 6)
+Sys.time()
+#options(op)
+
+
+
+# see if I can get a gene model to overlay this atac depth chart
+#use base R to set up graphics for two stacked plots:
+#?par()
+#mfrow to get multi panel (2 rows, 1 column)
+#mar for margin sizes, vector in order bottom,left,top,rightg
+#therefore all margins will be 1 except the left (where we putting the y-axis labels)
+dev.off()
+par(mfrow=c(2,1),mar=c(1,4,1,1))
+make_dnase_plot()
+#Add in the bedgraph plot
+#print("Used above code to add atac graph as the first row figure")
+#data that came with package did not have a gene loaded in this region so add our own
+#colnames(Sushi_transcripts.bed)
+#"chrom"  "start"  "stop"   "gene"   "score"  "strand" "type"
+custom_gene <- data.frame(chrom = rep(chrom,3),
+                          start = c(1800000,2000000,2200000),
+                          stop = c(1900000,2100000,2300000),
+                          gene = rep("Custom_gene",3),
+                          score = rep(".",3),
+                          strand = rep(1,3),
+                          type = rep("exon",3))
+#add as second panel
+plotGenes(custom_gene,chrom,chromstart,chromend,types = custom_gene$type,colorbycol = SushiColors(5), plotgenetype = "box",labeltext = T)
+
+
+```
+
+second run through with CNS:
+```{r}
+
+#tmp <- chisq.test(x=c(41,59),p=c(.50,.50))
+#tmp$p.value
+
+rm(list=ls(all=TRUE))
+library(tidyverse)
+#install.packages("devtools")
+#library("devtools")
+#install_github("dphansti/Sushi")
+library("Sushi")
+
+window_size = 5000
+chrom = "Chr2"
+chromstart = (18778072 - window_size)
+chromend = (18778086 + window_size)
+
+cns_bed <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/SRR1945758_bwa_alt_3_pbj_6_rename_mx_all.bed", sep = "\t", row.names = NULL)
+#change 6th column (strand) to 1/-1
+cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+cns_bed$V6 <- gsub("\\+","1",cns_bed$V6)
+#need to type? not for CNS, but will need to figure out, probs do perl script for that
+type_vect <- rep("exon",nrow(cns_bed))
+cns_bed <- cbind(cns_bed,type_vect)
+#change score to period
+cns_bed$V5 <- gsub("500",".",cns_bed$V5)
+
+sapply(cns_bed,class)
+
+#load in atac genomecov then convert to bedgraph (just copy second column)
+atac_genomecov <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/SRR1945758_bwa_alt_3_pbj_6_rename_atac_gc_Chr2_18467900_18878086.bed", sep = "\t",row.names = NULL)
+stop_vect <- atac_genomecov$V2
+atac_bedgraph <- cbind(atac_genomecov,stop_vect)
+atac_bedgraph <- atac_bedgraph[,c(1,2,4,3)]
+
+
+make_dnase_plot <- function(){
+  plotBedgraph(atac_bedgraph,chrom,chromstart, chromend,colorbycol = SushiColors(5)) 
+#add x axis labels, will draw stuff on top of plot, so if need to edit this,
+#rerun plotBedgraph()
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Kb') 
+#use base R functions to add y-axis
+#?mtext() == "Write Text into the Margins of a Plot"
+  mtext("Read Depth",side = 2, line = 2.75,cex = 1,font = 2)
+#?axis()
+  axis(side = 2,las=2,tcl=.5)
+}
+dev.off()
+par(mfrow=c(2,1),mar=c(1,4,1,1))
+make_dnase_plot()
+
+#Sys.time()
+
+#sapply(cns_bed,class)
+#sapply(cns_of_interest,class)
+#hmm lets just add the CNS we want for now so not take five ever
+cns_of_interest <- cns_bed[which(cns_bed$V2 > chromstart - window_size & cns_bed$V3 < chromend + window_size),]
+#cns_of_interest <- cns_bed[1,]
+#reset the factors?
+ 
+#levels(cns_of_interest$gene)
+#levels(cns_of_interest$chrom)
+#ayooo that did it
+plotGenes(cns_of_interest,chrom,chromstart,chromend, plotgenetype = "box",labeltext = F)
+
+```
+
+scrap code
+```{r}
+#
+#window_size = 500
+#chrom = "Chr5"
+#chromstart = (21127376 - window_size)
+#chromend = (21127389 + window_size)
+sapply(custom_gene,class)
+custom_gene <- data.frame(chrom = rep(chrom,1),
+                          start = c(21127376,21127400),
+                          stop = c(21127389,21127410),
+                          gene = rep("5||16169015||16168998||15265_AT5G57270||-||CNS||1||56045_1",2),
+                          score = rep(".",2),
+                          strand = rep(-1,2),
+                          type = rep("exon",2))
+
+cns_of_interest$V2 <- as.numeric(cns_of_interest$V2)
+cns_of_interest$V3 <- as.numeric(cns_of_interest$V3)
+cns_of_interest$V5 <- as.factor(cns_of_interest$V5)
+cns_of_interest$V6 <- as.numeric(cns_of_interest$V6)
+colnames(custom_gene)
+colnames(cns_of_interest) <- c("chrom","start","stop","gene","score","strand","type")
+rownames(cns_of_interest) <- NULL
+class(cns_of_interest)
+class(custom_gene)
+levels(cns_of_interest$gene)
+levels(custom_gene$gene)
+#?plotGenes
+plotGenes(custom_gene,chrom,chromstart,chromend, plotgenetype = "box",labeltext = F)
+
+op <- options(digits.secs = 6)
+Sys.time()
+#options(op)
+?factor
+
+
+# see if I can get a gene model to overlay this atac depth chart
+#use base R to set up graphics for two stacked plots:
+#?par()
+#mfrow to get multi panel (2 rows, 1 column)
+#mar for margin sizes, vector in order bottom,left,top,rightg
+#therefore all margins will be 1 except the left (where we putting the y-axis labels)
+dev.off()
+par(mfrow=c(2,1),mar=c(1,4,1,1))
+make_dnase_plot()
+#Add in the bedgraph plot
+#print("Used above code to add atac graph as the first row figure")
+#data that came with package did not have a gene loaded in this region so add our own
+#colnames(Sushi_transcripts.bed)
+#"chrom"  "start"  "stop"   "gene"   "score"  "strand" "type"
+custom_gene <- data.frame(chrom = rep(chrom,3),
+                          start = c(1800000,2000000,2200000),
+                          stop = c(1900000,2100000,2300000),
+                          gene = rep("Custom_gene",3),
+                          score = rep(".",3),
+                          strand = rep(1,3),
+                          type = rep("exon",3))
+#add as second panel
+plotGenes(custom_gene,chrom,chromstart,chromend,types = custom_gene$type,colorbycol = SushiColors(5), plotgenetype = "box",labeltext = T)
+
+
+
+```
+
+
+
+math for probability of random 6mer / 15mer
+```{r}
+Pr <- function(N, A, k, t) {
+        return(choose(N - t*(k - 1), t)/A^(t*k))
+}
+Pr(135000000, 4, 6, 1)
+?choose
+```
+
+
+sushi_screen test
+
+```{r}
+#!/usr/local/bin/Rscript
+#sushi_screen.R
+#Alan E. Yocca
+#04-02-19
+#screen CNS for overlap
+
+rm(list=ls(all=TRUE))
+
+#args <- commandArgs(TRUE)
+window_size <- 5000
+chromstart <- (18778072 - window_size)
+chromend <- (18778086 + window_size)
+chrom <- "Chr2"
+
+#gff <- as.character(args[4])
+#genome_cov <- as.character(args[5])
+#cns_annotation <- as.character(args[6])
+#output_path <- as.character(args[7])
+
+library(tidyverse)
+library("Sushi")
+
+cns_bed <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/SRR1945758_bwa_alt_3_pbj_6_rename_mx_all.bed", 
+                      sep = "\t", row.names = NULL)
+cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+cns_bed$V6 <- gsub("\\+","1",cns_bed$V6)
+type_vect <- rep("exon",nrow(cns_bed))
+cns_bed <- cbind(cns_bed,type_vect)
+#change score to period
+cns_bed$V5 <- gsub("500",".",cns_bed$V5)
+
+gene_bed <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/SRR1945758_bwa_alt_3_pbj_6_rename_maker_tair10_sushi.gff", sep = "\t", row.names = NULL)
+gene_bed$V6 <- gsub("-","-1",gene_bed$V6)
+gene_bed$V6 <- gsub("\\+","1",gene_bed$V6)
+
+atac_genomecov <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/SRR1945758_bwa_alt_3_pbj_6_rename_atac_gc_Chr2_18467900_18878086.bed",
+                             sep = "\t",row.names = NULL)
+atac_of_interest <- atac_genomecov[which(atac_genomecov$V2 > chromstart - window_size 
+                                  & atac_genomecov$V2 < chromend + window_size),]
+stop_vect <- atac_of_interest$V2
+atac_bedgraph <- cbind(atac_of_interest,stop_vect)
+atac_bedgraph <- atac_bedgraph[,c(1,2,4,3)]
+
+make_dnase_plot <- function(){
+  plotBedgraph(atac_bedgraph,chrom,chromstart, chromend,colorbycol = SushiColors(5)) 
+  #add x axis labels, will draw stuff on top of plot, so if need to edit this,
+  #rerun plotBedgraph()
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Kb') 
+  #use base R functions to add y-axis
+  #?mtext() == "Write Text into the Margins of a Plot"
+  mtext("Read Depth",side = 2, line = 2.75,cex = 1,font = 2)
+  #?axis()
+  axis(side = 2,las=2,tcl=.5)
+}
+#dev.off()
+
+cns_of_interest <- cns_bed[which(cns_bed$V2 > chromstart - window_size 
+                                 & cns_bed$V3 < chromend + window_size),]
+gene_of_interest <- gene_bed[which(gene_bed$V2 > chromstart - window_size 
+                                  & gene_bed$V3 < chromend + window_size),]
+
+#output_path <- as.character(args[7])
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/tmp.pdf",width = (2.75*1.5), height = (1.5*2.125))
+  par(mfrow=c(3,1),mar=c(1,4,1,1))
+  make_dnase_plot()
+  plotGenes(cns_of_interest,chrom,chromstart,chromend, 
+            plotgenetype = "box",labeltext = F)
+  mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+  plotGenes(gene_of_interest,chrom,chromstart,chromend, 
+            plotgenetype = "box",labeltext = T)
+  mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+  dev.off()
+#
+
+
+
+```
+
+
+
+Work with our favorite
+
+```{r}
+#args <- commandArgs(TRUE)
+args = 
+window_size <- as.numeric(args[3])
+chromstart <- as.numeric(args[1]) - window_size
+chromend <- as.numeric(args[2]) + window_size
+chrom <- as.character(args[4])
+
+library(tidyverse)
+library("Sushi")
+
+cns_bed <- read.table(file = as.character(args[7]), 
+                      sep = "\t", row.names = NULL)
+print("CNS bed subs")
+cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+cns_bed$V6 <- gsub("\\+","1",cns_bed$V6)
+type_vect <- rep("exon",nrow(cns_bed))
+cns_bed <- cbind(cns_bed,type_vect)
+#change score to period
+cns_bed$V5 <- gsub("500",".",cns_bed$V5)
+
+gene_bed <- read.table(file = as.character(args[5]),
+                       sep = "\t", row.names = NULL)
+print("Gene bed subs")
+gene_bed$V6 <- gsub("-","-1",gene_bed$V6)
+gene_bed$V6 <- gsub("\\+","1",gene_bed$V6)
+
+atac_genomecov <- read.table(file = as.character(args[6]),
+                             sep = "\t",row.names = NULL)
+stop_vect <- atac_genomecov$V2
+atac_bedgraph <- cbind(atac_genomecov,stop_vect)
+atac_bedgraph <- atac_bedgraph[,c(1,2,4,3)]
+
+make_dnase_plot <- function(){
+  plotBedgraph(atac_bedgraph,chrom,chromstart, chromend,colorbycol = SushiColors(5)) 
+  #add x axis labels, will draw stuff on top of plot, so if need to edit this,
+  #rerun plotBedgraph()
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Kb') 
+  #use base R functions to add y-axis
+  #?mtext() == "Write Text into the Margins of a Plot"
+  mtext("Read Depth",side = 2, line = 2.75,cex = 1,font = 2)
+  #?axis()
+  axis(side = 2,las=2,tcl=.5)
+}
+#dev.off()
+
+cns_of_interest <- cns_bed[which(cns_bed$V2 > chromstart - window_size 
+                                 & cns_bed$V3 < chromend + window_size
+                                 & gene_bed$V1 == chrom),]
+cns_of_interest$V1 <- factor(cns_of_interest$V1)
+cns_of_interest$V4 <- factor(cns_of_interest$V4)
+#levels(cns_of_interest$V1)
+#levels(cns_of_interest$V4)
+
+gene_of_interest <- gene_bed[which(gene_bed$V2 > chromstart - window_size 
+                                  & gene_bed$V3 < chromend + window_size
+                                  & gene_bed$V1 == chrom),]
+gene_of_interest$V1 <- factor(gene_of_interest$V1)
+gene_of_interest$V4 <- factor(gene_of_interest$V4)
+#levels(gene_of_interest$V1)
+#levels(gene_of_interest$V4)
+
+output_path <- as.character(args[8])
+pdf(file = paste0(output_path,"_sushi_",chrom,"_",chromstart,"_",chromend,".pdf")
+    ,width = (2.75*1.5), height = (1.5*2.125))
+	par(mfrow=c(3,1),mar=c(1,4,1,1))
+	make_dnase_plot()
+plotGenes(cns_of_interest,chrom,chromstart,chromend, 
+          plotgenetype = "box",labeltext = F)
+mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+	plotGenes(gene_of_interest,chrom,chromstart,chromend, 
+         plotgenetype = "box",labeltext = T)
+	mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+dev.off()
+```
+
+Messing with colors
+
+```{r}
+#make this programmable to enter anything with extra files in
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library("Sushi")
+
+#need a lot of files...
+#Eco_Posv:
+#gene annotation / subset
+#cns annotation / subset
+#rna subset
+#atac subset
+
+path = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/candidates/SRR1945916_bwa_alt_3_masked_29298_AT2G46430_sushi_Chr2/"
+eco_base = "SRR1945916_bwa_alt_3_masked_29298_AT2G46430_sushi_Chr2"
+srr = gsub("bwa_alt_3_masked.*","bwa_alt_3_masked",eco_base)
+chrom = "Chr2"
+chromstart = 14299312
+chromend = 14309326
+
+#same for each.. grr 8 files dumb well no way around it
+cns_bed <- read.table(file = paste0(path,"/",srr,"_mx_all.bed"), 
+                      sep = "\t", row.names = NULL)
+cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+cns_bed$V6 <- gsub("\\+","1",cns_bed$V6)
+type_vect <- rep("exon",nrow(cns_bed))
+cns_bed <- cbind(cns_bed,type_vect)
+cns_bed$V5 <- gsub("500",".",cns_bed$V5)
+
+gene_bed <- read.table(file = paste0(path,"/",srr,"_maker_tair10_sushi.gff"),
+                       sep = "\t", row.names = NULL)
+gene_bed$V6 <- gsub("-","-1",gene_bed$V6)
+gene_bed$V6 <- gsub("\\+","1",gene_bed$V6)
+
+SushiColors(palette='list')
+#[1] 2 3 4 5 6 7
+col2rgb("blue")
+scales::show_col(scales::hue_pal()(5))
+#red: #F8766D
+#gold: #A3A500
+#green: #00BF7D
+#blue: #00B0F6
+#purple: #E76BF3
+
+#ATAC should be red as it is in stacked graph, cns should be purple
+#genes can be gold
+#RNA blue, lets try that
+
+atac_colour = "#00B0F6"
+gene_colour = "#00BF7D"
+cns_colour = "#A3A500"
+rna_colour = "#E76BF3"
+
+make_bedgraph_plot <- function(bedgraph,chrom,chromstart,chromend,yaxis_label,colour){
+  plotBedgraph(bedgraph,chrom,chromstart, chromend,color = colour) 
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Kb') 
+  mtext(yaxis_label,side = 2, line = 2.75,cex = 1,font = 2)
+  axis(side = 2,las=2,tcl=.5)
+}
+#make_bedgraph_plot(ep_atac_bedgraph,chrom,chromstart,chromend,yaxis_label,atac_colour)
+##
+#SushiColors(palette = "firebrick2")
+#tmp = SushiColors(4)
+#? plotBedgraph
+#x <- ramp(seq.int(0, 1, length.out = 3))
+
+
+ep_atac_bedgraph = read.table(file = dir(path, pattern=paste0(eco_base,"_eco_posv.*_atac_subset.txt"), full.names = T),sep = "\t",row.names = NULL,header = T)
+
+yaxis_label = "ATAC"
+#make_bedgraph_plot(ep_atac_bedgraph,chrom,chromstart,chromend,yaxis_label,atac_colour)
+
+ep_rna_bedgraph = read.table(file = dir(path, pattern = paste0(eco_base,"_eco_posv.*_rna_subset.txt"), full.names = T),sep = "\t",row.names = NULL,header = T)
+
+eco_cns_sub = function(cns_bed,chromstart,chromend,chrom) {
+  cns_of_interest <- cns_bed[which(cns_bed$V2 > chromstart 
+                                   & cns_bed$V3 < chromend
+                                   & cns_bed$V1 == chrom),]
+  #convert to character so can split out just the CNS name
+  cns_of_interest$V4 = as.character(cns_of_interest$V4)
+  cns_of_interest = cns_of_interest %>% 
+    separate(V4,c(NA,NA,NA,"V4",NA,NA,NA,NA),sep = "\\|\\|") 
+  cns_of_interest = cns_of_interest[,which(grepl(".*",colnames(cns_of_interest)))]
+  #keep labels only for the CNS we want
+  #if start / stop does not match start/ stop of CNS we want, change label to empty string
+  #so hopefully only keep label we want
+  #loop through those not matching condition that we are changing to "" and make variable number of spaces
+  for (i in 1:nrow(cns_of_interest)) {
+    if (cns_of_interest$V2[i] != chromstart) {
+      cns_of_interest$V4[i] = paste(rep("",i), collapse = " ")
+    }
+  }  
+  #cns_of_interest$V4[which(cns_of_interest$V2 != args[1])] = ""
+  #refactor, keep only levels in subset
+  cns_of_interest$V1 <- factor(cns_of_interest$V1)
+  cns_of_interest$V4 <- factor(cns_of_interest$V4)
+  #levels(cns_of_interest$V1)
+  #levels(cns_of_interest$V4)
+  if (nrow(cns_of_interest) == 0) {
+    cns_of_interest = data.frame(V1 = chrom, 
+                                 V2 = 0, V3 = 0, V4 = "CNS", 
+                                 V5 = ".", V6 = "1", type_vect = "exon")
+  }
+  return(cns_of_interest)
+}
+eco_gene_sub = function(gene_bed,chromstart,chromend,chrom) {
+  gene_of_interest <- gene_bed[which(gene_bed$V2 > chromstart
+                                     & gene_bed$V3 < chromend
+                                     & gene_bed$V1 == chrom),]
+  #convert to character so can split out just the CNS name
+  gene_of_interest$V4 = as.character(gene_of_interest$V4)
+  gene_of_interest = gene_of_interest %>% 
+    separate(V4,c("V4",NA),sep = "_")
+  gene_of_interest = gene_of_interest[,which(grepl(".*",colnames(gene_of_interest)))]
+  #refactor, keep only levels in subset
+  gene_of_interest$V1 <- factor(gene_of_interest$V1)
+  gene_of_interest$V4 <- factor(gene_of_interest$V4)
+  if (nrow(gene_of_interest) == 0) {
+    stop("No gene in the neighborhood, increase window size")
+  }
+  return(gene_of_interest)
+}
+
+cns_of_interest = eco_cns_sub(cns_bed,chromstart,chromend,chrom)
+gene_of_interest = eco_gene_sub(gene_bed,chromstart,chromend,chrom)
+
+#plot fun figuring out colours
+plot_size = 4
+rna_yaxis_label = "RNA-seq"
+pdf(file = paste0(path, "/",eco_base,"_tmp",".pdf")
+    ,width = (2.75*1.5), height = (1.5*2.125))  
+  par(mfrow=c(plot_size,1),mar=c(1,4,1,1))
+	make_bedgraph_plot(ep_atac_bedgraph,chrom,chromstart,chromend,yaxis_label,atac_colour)
+  make_bedgraph_plot(ep_rna_bedgraph,chrom,chromstart,chromend,rna_yaxis_label,rna_colour)
+	plotGenes(cns_of_interest,chrom,chromstart,chromend, 
+          plotgenetype = "box",labeltext = T, col = cns_colour)
+  mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+	plotGenes(gene_of_interest,chrom,chromstart,chromend, 
+         plotgenetype = "box",labeltext = T, col = gene_colour)
+	mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+dev.off()
+
+```
+
+Run through local favorites
+- had extracted bed file regions of interest on hpcc
+- make this code block read in a string with the final four figure graph want to recapitulate
+- extract all numbers we need from that string
+- how about a second block for tair_posv and eco_posv? sounds good, beacuse will need different files
+
+to keep code cleaner, put all functions in the code block
+
+Sushi_functions
+- code block just to make all the functions for the later two code blocks
+- also lets load the cns and gene annotations here ( just not the subsets )
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+#no particular order
+tair_gene_sub = function(tair_gene_annotation,tair_chromstart,tair_chromend,chrom) {
+  tair_gene_of_interest <- tair_gene_annotation[which(tair_gene_annotation$V2 > tair_chromstart 
+                                                      & tair_gene_annotation$V3 < tair_chromend
+                                                      & tair_gene_annotation$V1 == chrom),]
+  tair_gene_of_interest$V1 <- factor(tair_gene_of_interest$V1)
+  tair_gene_of_interest$V4 <- factor(tair_gene_of_interest$V4)  
+  return(tair_gene_of_interest)
+}
+tair_cns_sub = function(tair_cns_annotation,tair_chromstart,tair_chromend,chrom,cns_name) {
+  tair_cns_of_interest <- tair_cns_annotation[which(tair_cns_annotation$V2 > tair_chromstart
+                                                    & tair_cns_annotation$V3 < tair_chromend
+                                                    & tair_cns_annotation$V1 == chrom),]
+  
+  #convert to character so can split out just the CNS name
+  tair_cns_of_interest$V4 = as.character(tair_cns_of_interest$V4)
+  #tair_cns_of_interest = tair_cns_of_interest %>% 
+  #  separate(V4,c(NA,NA,NA,"V4",NA,NA,NA,NA),sep = "\\|\\|") 
+  #tair_cns_of_interest = tair_cns_of_interest[,which(grepl(".*",colnames(tair_cns_of_interest)))]
+  #keep labels only for the CNS we want
+  #if start / stop does not match start/ stop of CNS we want, change label to empty string
+  #so hopefully only keep label we want
+  #label them all
+#  if (! missing(cns_name)) {
+#    print("No CNS provided, keeping annotations for all CNS")  
+#    for (i in 1:nrow(tair_cns_of_interest)) {
+#      if (! grepl(cns_name,tair_cns_of_interest$V4[i])) {
+#        tair_cns_of_interest$V4[i] = paste(rep("",i), collapse = " ")
+#      }
+#    } 
+#  }
+  #tair_cns_of_interest$V4[which(tair_cns_of_interest$V4 != cns_name)] = ""
+  tair_cns_of_interest$V1 <- factor(tair_cns_of_interest$V1)
+  tair_cns_of_interest$V4 <- factor(tair_cns_of_interest$V4)  
+  if (nrow(tair_cns_of_interest) == 0) {
+    print("No CNS found")
+    tair_cns_of_interest = data.frame(V1 = chrom, 
+                                      V2 = 0, V3 = 0, V4 = "CNS", 
+                                      V5 = ".", V6 = "1", type_vect = "exon")
+  }
+  tair_cns_of_interest$V4 = gsub("_.*","",tair_cns_of_interest$V4)
+  return(tair_cns_of_interest)
+}
+
+tair_cns_bed_file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets/TAIR10_ref_cns.bed"
+tair_gene_bed_file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets/TAIR10_GFF3_sushi.gff"
+tair_cns_annotation <- read.table(file = tair_cns_bed_file, 
+                      sep = "\t", row.names = NULL)
+
+#find cns annotation in this file to get start/stop
+tair_cns_annotation$V6 <- gsub("-","-1",tair_cns_annotation$V6)
+tair_cns_annotation$V6 <- gsub("\\+","1",tair_cns_annotation$V6)
+type_vect <- rep("exon",nrow(tair_cns_annotation))
+tair_cns_annotation <- cbind(tair_cns_annotation,type_vect)
+#change score to period
+tair_cns_annotation$V5 <- gsub("500",".",tair_cns_annotation$V5)
+
+tair_gene_annotation <- read.table(file = tair_gene_bed_file,
+                       sep = "\t", row.names = NULL)
+tair_gene_annotation$V6 <- gsub("-","-1",tair_gene_annotation$V6)
+tair_gene_annotation$V6 <- gsub("\\+","1",tair_gene_annotation$V6)
+
+#representative transcript.. eh just take .1
+tair_gene_annotation = tair_gene_annotation[which(grepl("\\.1$",tair_gene_annotation$V4)),]
+#remove transcript tag
+tair_gene_annotation$V4 = gsub("\\.1$","",tair_gene_annotation$V4)
+
+#rm(peak_file)
+#peak_file = peak_bed
+
+atac_peak_sub = function(peak_file,chrom,chromstart,chromend) {
+  #need to get things even if they partially fall in the window..
+  #I imagine peaks wont cover entire region we are interested in... eh they might
+  #fudge it, again not perfect but this is high throughput screening and not final word
+  #so if this returns something funky and I look at it I can filter out later
+  #subset if either v2 or v3 lie within interval
+  #adjust format to that needed, then subset, just to ensure no errors in subsetting
+  
+  peak_file[,1] = as.factor(peak_file[,1])
+  peak_file[,4] = peak_file[,10]
+  peak_file[,5] = rep(".",nrow(peak_file))
+  peak_file[,6] = rep("+",nrow(peak_file))
+  peak_file[,7] = rep("exon",nrow(peak_file))
+  peak_file = peak_file[,c(1:7)]
+
+  out_bedgraph = peak_file[which( ((peak_file$V2 > chromstart & peak_file$V2 < chromend) | 
+                                  (peak_file$V3 > chromstart & peak_file$V3 < chromend) ) &
+                                  (grepl(chrom,peak_file$V1))),]
+  out_bedgraph$V4 = as.character(out_bedgraph$V4)
+  
+  if (nrow(out_bedgraph) == 0) {
+    print("No peaks found, adding dummy peak at coord Chr1, 1 so sushi plot doesn't complain")
+    out_bedgraph = data.frame(Chrom = "Chr1",
+                              Start = 1,
+                              Stop = 1,
+                              Name = "Fake Peak",
+                              Score = ".",
+                              Strand = "+",
+                              Type = "exon")
+  } else {
+    for (i in 1:nrow(out_bedgraph)) {
+      out_bedgraph$V4[i] = paste(rep("",i), collapse = " ")
+    }      
+  }
+  return(out_bedgraph)
+}
+
+make_bedgraph_plot <- function(bedgraph,chrom,chromstart,chromend,yaxis_label,colour,y_max){
+  plotBedgraph(bedgraph,chrom,chromstart, chromend, color = colour, range = c(0,y_max)) 
+  #add x axis labels, will draw stuff on top of plot, so if need to edit this,
+  #rerun plotBedgraph()
+  labelgenome(chrom,chromstart,chromend,n=4,scale = 'Kb') 
+  #use base R functions to add y-axis
+  #?mtext() == "Write Text into the Margins of a Plot"
+  mtext(yaxis_label,side = 2, line = 2.75,cex = 1,font = 2)
+  #?axis()
+  axis(side = 2,las=2,tcl=.5)
+}
+
+eco_cns_sub = function(cns_bed,chromstart,chromend,chrom,cns) {
+  cns_of_interest <- cns_bed[which(cns_bed$V2 > chromstart 
+                                   & cns_bed$V3 < chromend
+                                   & cns_bed$V1 == chrom),]
+  #convert to character so can split out just the CNS name
+  cns_of_interest$V4 = as.character(cns_of_interest$V4)
+  cns_of_interest = cns_of_interest %>% 
+    separate(V4,c(NA,NA,NA,"V4",NA,NA,NA,NA),sep = "\\|\\|") 
+  cns_of_interest = cns_of_interest[,which(grepl(".*",colnames(cns_of_interest)))]
+  #keep labels only for the CNS we want
+  #if start / stop does not match start/ stop of CNS we want, change label to empty string
+  #so hopefully only keep label we want
+  #loop through those not matching condition that we are changing to "" and make variable number of spaces
+#  if (! missing(cns)) {
+#    print("No CNS provided, keeping annotations for all CNS")
+#    for (i in 1:nrow(cns_of_interest)) {
+#      if (cns_of_interest$V4[i] != cns) {
+#        cns_of_interest$V4[i] = paste(rep("",i), collapse = " ")
+#      }
+#    }  
+#  } 
+  #cns_of_interest$V4[which(cns_of_interest$V2 != args[1])] = ""
+  #refactor, keep only levels in subset
+  cns_of_interest$V1 <- factor(cns_of_interest$V1)
+  cns_of_interest$V4 <- factor(cns_of_interest$V4)
+  #levels(cns_of_interest$V1)
+  #levels(cns_of_interest$V4)
+  if (nrow(cns_of_interest) == 0) {
+    cns_of_interest = data.frame(V1 = chrom, 
+                                 V2 = 0, V3 = 0, V4 = "CNS", 
+                                 V5 = ".", V6 = "1", type_vect = "exon")
+  }
+  #cut numbers
+  cns_of_interest$V4 = gsub("_.*","",cns_of_interest$V4)
+  return(cns_of_interest)
+}
+eco_gene_sub = function(gene_bed,chromstart,chromend,chrom) {
+  gene_of_interest <- gene_bed[which(gene_bed$V2 > chromstart
+                                     & gene_bed$V3 < chromend
+                                     & gene_bed$V1 == chrom),]
+  #convert to character so can split out just the CNS name
+  gene_of_interest$V4 = gsub("\\.[0-9]","",as.character(gene_of_interest$V4))
+  gene_of_interest = gene_of_interest %>% 
+    separate(V4,c("V4",NA),sep = "_")
+  gene_of_interest = gene_of_interest[,which(grepl(".*",colnames(gene_of_interest)))]
+  #refactor, keep only levels in subset
+  gene_of_interest$V1 <- factor(gene_of_interest$V1)
+  gene_of_interest$V4 <- factor(gene_of_interest$V4)
+  if (nrow(gene_of_interest) == 0) {
+    stop("No gene in the neighborhood, increase window size")
+  }
+  return(gene_of_interest)
+}
+
+load_eco_gene = function(srr) {
+  eco_gene_bed_file = paste0("/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets/",
+                             srr,"_maker_tair10_sushi.gff")
+  gene_bed <- read.table(file = eco_gene_bed_file,
+                       sep = "\t", row.names = NULL)
+  gene_bed$V6 <- gsub("-","-1",gene_bed$V6)
+  gene_bed$V6 <- gsub("\\+","1",gene_bed$V6)
+  return(gene_bed)
+}
+load_eco_cns = function(srr) {
+  eco_cns_bed_file = paste0("/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets/",
+                            srr,"_mx_all.bed")
+
+  cns_bed <- read.table(file = eco_cns_bed_file, 
+                      sep = "\t", row.names = NULL)
+  cns_bed$V6 <- gsub("-","-1",cns_bed$V6)
+  cns_bed$V6 <- gsub("\\+","1",cns_bed$V6)
+  type_vect <- rep("exon",nrow(cns_bed))
+  cns_bed <- cbind(cns_bed,type_vect)
+  #change score to period
+  cns_bed$V5 <- gsub("500",".",cns_bed$V5)
+  return(cns_bed)
+}
+load_eco_peak = function(srr) {
+  eco_atac_peaks_file = paste0("/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets/",
+                            srr,"_atac_peaks_sort.xls")
+  eco_atac_peaks = read.table(file = eco_atac_peaks_file,
+                              sep = "\t", row.names = NULL, header = F)
+  eco_atac_peaks$V1 = gsub("\\|.*","",eco_atac_peaks$V1)
+  return(eco_atac_peaks)
+}
+
+
+tair_peak_annotation_file = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets/TAIR10_ref_atac_peaks_sort.bed"
+tair_atac_peaks = read.table(file = tair_peak_annotation_file,
+                              sep = "\t", row.names = NULL, header = F)
+tair_atac_peaks$V1 = gsub("\\|.*","",tair_atac_peaks$V1)
+
+
+```
+
+
+Tair_posv
+- Dependency: Sushi_functions
+```{r}
+#final plot name string, gather the bed subset files from this? is that possible?
+#awesome, go me put all subsets with same coordinates and cns name so this will be easy
+#hmm didnt get coords in final figure name though... make the candidate the first file we going to subset:
+#- tair_atac_bedgraph name
+
+path = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets"
+#make candidate here "tair_posv"
+candidate = "SRR1945916_bwa_alt_3_masked_64538_AT5G45490_sushi_Chr5_tair_posv_8336385_8346397_atac_subset.txt"
+#allow for usage of both bwa_alt_3 and pbj genomes
+candidate_vect = unlist(strsplit(candidate, split = "_"))
+#ssi = sushi_string_index
+ssi = which(grepl("sushi",candidate_vect))
+cns = paste(collapse = "_",candidate_vect[c((ssi - 2),(ssi - 1))])
+#candidate_vect[sushi_string_index]
+#candidate will be tair_atac, so need to sub out eco_coll, not doing rna stuff
+chrom = candidate_vect[(ssi+1)]
+chromstart = as.numeric(candidate_vect[(ssi+4)])
+chromend = as.numeric(candidate_vect[(ssi+5)])
+window_size = (chromend - chromstart) / 4
+#window wont be exactly right but should work
+
+#loading in all these full files, 
+#just atac bed that Im not
+srr = paste(collapse = "_",candidate_vect[(1:(ssi -3))])
+gene_bed = load_eco_gene(srr)
+cns_bed = load_eco_cns(srr)
+peak_bed = load_eco_peak(srr)
+
+tair_cns_of_interest_annotation = tair_cns_annotation[which(
+      grepl(cns,tair_cns_annotation$V4)),]
+tair_chromstart = as.numeric(tair_cns_of_interest_annotation$V2) - window_size
+tair_chromend = as.numeric(tair_cns_of_interest_annotation$V3) + window_size
+
+
+tair_cns_of_interest = tair_cns_sub(tair_cns_annotation,tair_chromstart,
+    tair_chromend,chrom,cns)
+tair_gene_of_interest = tair_gene_sub(tair_gene_annotation,tair_chromstart,tair_chromend,chrom)
+tair_atac_subset = read.table(file = paste0(path,"/",candidate), sep = "\t",row.names = NULL,header = T)
+tair_peak_subset = atac_peak_sub(tair_atac_peaks,chrom,tair_chromstart,
+              tair_chromend)
+
+#need eco coll start/stop
+
+prox_gene_dist_eco = c(100000000000)
+prox_gene = c()
+#super messy but it works, loop through each exon in eco window, find closest exon
+#find exon closest to where CNS is in tair
+cns_number = gsub("_.*","",cns)
+tair_cns_ann = tair_cns_of_interest[which(grepl(cns_number,tair_cns_of_interest$V4)),]
+for (i in 1:nrow(tair_gene_of_interest)) {
+  loop_dist_ll = abs(tair_gene_of_interest[i,2] - as.numeric(tair_cns_ann[2]))
+  loop_dist_hl = abs(tair_gene_of_interest[i,3] - as.numeric(tair_cns_ann[2]))
+  loop_dist_lh = abs(tair_gene_of_interest[i,2] - as.numeric(tair_cns_ann[3]))
+  loop_dist_hh = abs(tair_gene_of_interest[i,3] - as.numeric(tair_cns_ann[3]))
+  #take minimum from above
+  loop_dist_min = min(loop_dist_ll,loop_dist_hl,loop_dist_lh,loop_dist_hh)
+  if(loop_dist_min < prox_gene_dist_eco) {
+    prox_gene_dist_eco = loop_dist_min
+    #actually, seems we have transcript designations, so leave it there
+    #prox_gene = gsub("\\..*","",gene_of_interest[i,4])
+    prox_gene = as.character(tair_gene_of_interest[i,4])
+  }
+}
+#now have proximate gene, need window up and down, for down, get largest exon
+#prox_gene_eco_df = tair_gene_of_interest[which(grepl(gsub("\\..*","",prox_gene,tair_gene_of_interest$V4))),]
+prox_gene_tair_df = tair_gene_of_interest[which(grepl(prox_gene,tair_gene_of_interest$V4)),]
+pg_left_bound = min(prox_gene_tair_df$V2)
+pg_right_bound = max(prox_gene_tair_df$V3)
+#
+ec_tair_up = pg_left_bound - tair_chromstart
+ec_tair_down = tair_chromend - pg_right_bound 
+#ayyy got it, now pull annotation from gene_bed
+ec_gene_ann = gene_bed[which(grepl(gsub("\\..*","",prox_gene),gene_bed$V4)),]
+if (nrow(ec_gene_ann) == 0) {
+  stop(paste0("No collinear gene, (",prox_gene,") in ecotype for PosV CNS location in Col-0."))
+}
+ec_gene_min = min(ec_gene_ann$V2)
+ec_gene_max = max(ec_gene_ann$V3)
+
+ec_chromstart = ec_gene_min - ec_tair_up
+ec_chromend = ec_tair_down + ec_gene_max
+
+#switch tair_posv to eco_coll
+candidate_ec = gsub("tair_posv","eco_coll",candidate)
+ec_atac_bedgraph = read.table(file = paste0(path,"/",candidate_ec), sep = "\t",row.names = NULL,header = T)
+ec_cns_of_interest = eco_cns_sub(cns_bed,ec_chromstart,ec_chromend,chrom)
+ec_gene_of_interest = eco_gene_sub(gene_bed,ec_chromstart,ec_chromend,chrom)
+ec_peak_annotation = atac_peak_sub(peak_bed,chrom,ec_chromstart,ec_chromend)
+```
+
+This got messier than anticipated,
+separating the graphing code for readability
+- Dependencies: Tair_posv
+```{r}
+library(Sushi)
+atac_colour = "#00B0F6"
+gene_colour = "#00BF7D"
+cns_colour = "#A3A500"
+peak_colour = "#E76BF3"
+atac_yaxis_label = "ATAC"
+peak_yaxis_label = "Peaks"
+
+#get max value for atac tracks:
+y_max = max(max(ec_atac_bedgraph$V3),max(tair_atac_subset$V3))
+
+#Eco coll
+#?pdf
+pdf(file = paste0(path,"/../peak_screen/",srr, "_", cns, "_sushi_",chrom,"_eco_coll_tair_posv_",
+                  chromstart,"_",chromend,".pdf"),
+    width = 3.5)
+    #,width = ((2.75*1.5)/1.5), height = ((1.5*2.125)*3))
+  #par(mfrow=c(8,1),mar=c(1,4,1,1))
+  plot.new()
+  par(fig=c(0,0.1,0.5,1), new=T)
+  mtext("Accession",side = 2, line = 2.75,cex = 1,font = 2)
+  par(fig=c(0,0.1,0,0.5), new=T)
+  mtext("Col-0",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  
+  par(fig=c(0.1,1,0.875,1), new=T,mar=c(1,4,1,1))
+  make_bedgraph_plot(ec_atac_bedgraph,chrom,ec_chromstart,ec_chromend,atac_yaxis_label,atac_colour,y_max)
+  
+  par(fig=c(0.1,1,0.75,0.875), new=T)
+  plotGenes(ec_peak_annotation,chrom,ec_chromstart,ec_chromend, 
+          plotgenetype = "box",labeltext = T, col = peak_colour)
+  mtext("Peak",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.625,0.75), new=T)
+  plotGenes(ec_cns_of_interest,chrom,ec_chromstart,ec_chromend, 
+          plotgenetype = "box",labeltext = T, col = cns_colour)
+  mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.5,0.625), new=T)
+  plotGenes(ec_gene_of_interest,chrom,ec_chromstart,ec_chromend, 
+          plotgenetype = "box",labeltext = T, col = gene_colour)
+  mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+
+#Tair posv
+  par(fig=c(0.1,1,0.375,0.5), new=T)
+  make_bedgraph_plot(tair_atac_subset,chrom,tair_chromstart,tair_chromend,atac_yaxis_label,atac_colour,y_max)
+  
+  par(fig=c(0.1,1,0.25,0.375), new=T)
+  plotGenes(tair_peak_subset,chrom,tair_chromstart,tair_chromend, 
+          plotgenetype = "box",labeltext = T, col = peak_colour)
+  mtext("Peak",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.125,0.25), new=T)
+  plotGenes(tair_cns_of_interest,chrom,tair_chromstart,tair_chromend, 
+          plotgenetype = "box",labeltext = T, col = cns_colour)
+  mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.0,0.125), new=T)
+  plotGenes(tair_gene_of_interest,chrom,tair_chromstart,tair_chromend, 
+          plotgenetype = "box",labeltext = T, col = gene_colour)
+  mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+dev.off()
+
+```
+
+
+Eco_posv
+- Dependency: Sushi_functions
+```{r}
+#final plot name string, gather the bed subset files from this? is that possible?
+#awesome, go me put all subsets with same coordinates and cns name so this will be easy
+#hmm didnt get coords in final figure name though... make the candidate the first file we going to subset:
+#- tair_atac_bedgraph name
+
+path = "/Users/alanyocca/Documents/01_athal_cns/24_sushi/bed_subsets"
+#make candidate here "tair_posv"
+candidate = "SRR1945811_bwa_alt_3_masked_1499_AT4G09510_sushi_Chr4_eco_posv_63359_73374_atac_subset.txt"
+#allow for usage of both bwa_alt_3 and pbj genomes
+candidate_vect = unlist(strsplit(candidate, split = "_"))
+#ssi = sushi_string_index
+ssi = which(grepl("sushi",candidate_vect))
+cns = paste(collapse = "_",candidate_vect[c((ssi - 2),(ssi - 1))])
+#candidate_vect[sushi_string_index]
+#candidate will be tair_atac, so need to sub out eco_coll, not doing rna stuff
+chrom = candidate_vect[(ssi+1)]
+chromstart = as.numeric(candidate_vect[(ssi+4)])
+chromend = as.numeric(candidate_vect[(ssi+5)])
+window_size = (chromend - chromstart) / 2
+#window wont be exactly right but should work
+
+#loading in all these full files, 
+#just atac bed that Im not
+srr = paste(collapse = "_",candidate_vect[(1:(ssi -3))])
+gene_bed = load_eco_gene(srr)
+cns_bed = load_eco_cns(srr)
+peak_bed = load_eco_peak(srr)
+
+cns_of_interest = eco_cns_sub(cns_bed,chromstart,chromend,chrom)
+gene_of_interest = eco_gene_sub(gene_bed,chromstart,chromend,chrom)
+peak_annotation = atac_peak_sub(peak_bed,chrom,chromstart,chromend)
+atac_subset = read.table(file = paste0(path,"/",candidate), sep = "\t",row.names = NULL,header = T)
+
+prox_gene_dist_eco = c(100000000000)
+prox_gene = c()
+#super messy but it works, loop through each exon in eco window, find closest exon
+#others should be empty strings
+cns_number = gsub("_.*","",cns)
+eco_cns_ann = cns_of_interest[which(grepl(cns_number,cns_of_interest$V4)),]
+#in case > 1 CNS in this, just take the first one..
+eco_cns_ann = eco_cns_ann[1,]
+for (i in 1:nrow(gene_of_interest)) {
+  loop_dist_ll = abs(gene_of_interest[i,2] - as.numeric(eco_cns_ann[2]))
+  loop_dist_hl = abs(gene_of_interest[i,3] - as.numeric(eco_cns_ann[2]))
+  loop_dist_lh = abs(gene_of_interest[i,2] - as.numeric(eco_cns_ann[3]))
+  loop_dist_hh = abs(gene_of_interest[i,3] - as.numeric(eco_cns_ann[3]))
+  #take minimum from above
+  loop_dist_min = min(loop_dist_ll,loop_dist_hl,loop_dist_lh,loop_dist_hh)
+  if(loop_dist_min < prox_gene_dist_eco) {
+    prox_gene_dist_eco = loop_dist_min
+    #actually, seems we have transcript designations, so leave it there
+    #prox_gene = gsub("\\..*","",gene_of_interest[i,4])
+    prox_gene = gsub("\\.[0-9]*$","",as.character(gene_of_interest[i,4]))
+    print(prox_gene)
+  }
+}
+
+test = "hello.3"
+subbed = gsub("\\.[0-9]*","",test)
+
+#now have proximate gene, need window up and down, for down, get largest exon
+prox_gene_eco_df = gene_of_interest[which(grepl(prox_gene,gene_of_interest$V4)),]
+pg_left_bound = min(prox_gene_eco_df$V2)
+pg_right_bound = max(prox_gene_eco_df$V3)
+#
+tc_eco_up = pg_left_bound - chromstart
+tc_eco_down = chromend - pg_right_bound 
+#ayyy got it, now pull annotation from tair_gene_bed
+tc_gene_ann = tair_gene_annotation[which(grepl(prox_gene,tair_gene_annotation$V4)),]
+tc_gene_min = min(tc_gene_ann$V2)
+tc_gene_max = max(tc_gene_ann$V3)
+
+tc_chromstart = tc_gene_min - tc_eco_up
+tc_chromend = tc_eco_down + tc_gene_max
+
+tc_gene = tair_gene_sub(tair_gene_annotation,tc_chromstart,tc_chromend,chrom)
+#tc_syn_gene = tair_gene_sub(tair_gene_annotation,tc_gene_min,tc_gene_max,chrom)
+tc_cns = tair_cns_sub(tair_cns_annotation,tc_chromstart,
+                      tc_chromend,chrom,cns)
+
+candidate_tc = gsub("eco_posv","tair_coll",candidate)
+tc_atac_bedgraph = read.table(file = paste0(path,"/",candidate_tc), sep = "\t",row.names = NULL,header = T)
+tc_peak_annotation = atac_peak_sub(tair_atac_peaks,chrom,tc_chromstart,tc_chromend)
+
+```
+
+This got messier than anticipated,
+separating the graphing code for readability
+- Dependencies: Eco_posv
+```{r}
+library(Sushi)
+atac_colour = "#00B0F6"
+gene_colour = "#00BF7D"
+cns_colour = "#A3A500"
+peak_colour = "#E76BF3"
+atac_yaxis_label = "ATAC"
+peak_yaxis_label = "Peaks"
+
+#get max value for atac tracks:
+y_max = max(max(atac_subset$V3),max(tc_atac_bedgraph$V3))
+
+#manual inspection, want to cut chromstart to 66kb
+chromstart = 66000
+tc_chromstart = 66000
+
+#Eco Posv
+pdf(file = paste0(path,"/../peak_screen/",srr, "_", cns, "_sushi_",chrom,"_eco_posv_tair_coll_",
+                  chromstart,"_",chromend,".pdf"),
+    width = 3.5)
+    #,width = ((2.75*1.5)/1.5), height = ((1.5*2.125)*3))
+  par(mfrow=c(8,1),mar=c(1,4,1,1))
+  plot.new()
+  par(fig=c(0,0.1,0.5,1), new=T)
+  mtext("Accession",side = 2, line = 2.75,cex = 1,font = 2)
+  par(fig=c(0,0.1,0,0.5), new=T)
+  mtext("Col-0",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.875,1), new=T,mar=c(1,4,1,1))
+  make_bedgraph_plot(atac_subset,chrom,chromstart,chromend,atac_yaxis_label,atac_colour,y_max)
+  
+  par(fig=c(0.1,1,0.75,0.875), new=T,mar=c(1,4,1,1))
+  plotGenes(peak_annotation,chrom,chromstart,chromend, 
+          plotgenetype = "box",labeltext = T, col = peak_colour)
+  mtext("Peak",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.625,0.75), new=T,mar=c(1,4,1,1))
+  plotGenes(cns_of_interest,chrom,chromstart,chromend, 
+          plotgenetype = "box",labeltext = T, col = cns_colour)
+  mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.5,0.625), new=T,mar=c(1,4,1,1))
+  plotGenes(gene_of_interest,chrom,chromstart,chromend, 
+          plotgenetype = "box",labeltext = T, col = gene_colour)
+  mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+
+#Tair coll
+  par(fig=c(0.1,1,0.375,0.5), new=T,mar=c(1,4,1,1))
+  make_bedgraph_plot(tc_atac_bedgraph,chrom,tc_chromstart,tc_chromend,atac_yaxis_label,atac_colour,y_max)
+  
+  par(fig=c(0.1,1,0.25,0.375), new=T,mar=c(1,4,1,1))
+  plotGenes(tc_peak_annotation,chrom,tc_chromstart,tc_chromend, 
+          plotgenetype = "box",labeltext = T, col = peak_colour)
+  mtext("Peak",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0.125,0.25), new=T,mar=c(1,4,1,1))
+  plotGenes(tc_cns,chrom,tc_chromstart,tc_chromend, 
+          plotgenetype = "box",labeltext = T, col = cns_colour)
+  mtext("CNS",side = 2, line = 2.75,cex = 1,font = 2)
+  
+  par(fig=c(0.1,1,0,.125), new=T,mar=c(1,4,1,1))
+  plotGenes(tc_gene,chrom,tc_chromstart,tc_chromend, 
+          plotgenetype = "box",labeltext = T, col = gene_colour)
+  mtext("Gene",side = 2, line = 2.75,cex = 1,font = 2)
+dev.off()
+
+```
+
+Spruce up:
+- remove multiple transcripts in tair
+  - remove transcript ids from whats left
+- strip cns name to just the number
+
+
+
+
+
+
+
+
+

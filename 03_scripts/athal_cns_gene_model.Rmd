@@ -1,0 +1,306 @@
+---
+title: "athal_cns_gene_model"
+output: html_document
+---
+
+
+athal_cns_gene_model
+
+make some graphs showing distribution of things across all gene models
+
+load in everything and format together
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.moved <- dir(path.moved, pattern="*mx_moved_closest_model_depth_50kb_50kb.txt", full.names = T)
+
+list_of_files <- file.names.moved
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+list_col_names <- c("Type","Coords","Depth")
+for (i in 1:length(loaded_list_of_files)) {
+  colnames(loaded_list_of_files[[i]]) <- list_col_names
+}
+
+#library("plyr", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+#combine in new df
+#combined_df <- data.frame(Tag = character(),
+#                          Coords = numeric(),
+#                          Depth = numeric())
+combined_df <- loaded_list_of_files[[1]]
+#View(loaded_list_of_files[[2]])
+#for (i in length(loaded_list_of_files)) {
+for (i in 2:length(loaded_list_of_files)) {
+  #?merge
+  #combined_df <- ddply(merge(combined_df,loaded_list_of_files[[i]], all.x = T), .(Type, Coords), summarise, Depth=sum(Depth))
+  combined_df <- merge(combined_df,loaded_list_of_files[[i]], by = c("Type", "Coords"))
+  #sum columns
+  combined_df$Depth <- combined_df$Depth.x + combined_df$Depth.y
+  combined_df <- combined_df[,c(1,2,5)]
+}
+
+#normalize depth
+combined_df <- combined_df %>%
+  mutate(Norm_depth = Depth / sum(combined_df$Depth))
+#View(combined_df$Depth)
+
+combined_moved <- combined_df
+#nice...
+
+
+############################################################
+#now on to collinear
+path.coll = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.coll <- dir(path.coll, pattern="*mx_coll_closest_model_depth_50kb_50kb.txt", full.names = T)
+
+list_of_files <- file.names.coll
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#list_col_names <- c("Type","Coords","Depth")
+for (i in 1:length(loaded_list_of_files)) {
+  colnames(loaded_list_of_files[[i]]) <- list_col_names
+}
+combined_df <- loaded_list_of_files[[1]]
+for (i in 2:length(loaded_list_of_files)) {
+  combined_df <- merge(combined_df,loaded_list_of_files[[i]], by = c("Type", "Coords"))
+  combined_df$Depth <- combined_df$Depth.x + combined_df$Depth.y
+  combined_df <- combined_df[,c(1,2,5)]
+}
+
+#normalize depth
+combined_df <- combined_df %>%
+  mutate(Norm_depth = Depth / sum(combined_df$Depth))
+combined_coll <- combined_df
+
+############################################################
+#now on to TAIR10
+tair10_cns_model_depth <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/tair10_cns_closest_model_depth_50kb_50kb.txt",stringsAsFactors = F, header = F, row.names = NULL)
+#list_col_names <- c("Type","Coords","Depth")
+colnames(tair10_cns_model_depth) <- list_col_names
+
+#normalize depth
+tair10_cns_model_depth <- tair10_cns_model_depth %>%
+  mutate(Norm_depth = Depth / sum(tair10_cns_model_depth$Depth))
+
+############################################################
+#tair missing
+tair10_missing <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/tair10_missing_closest_model_depth_50kb_50kb.txt",stringsAsFactors = F, header = F, row.names = NULL)
+#list_col_names <- c("Type","Coords","Depth")
+colnames(tair10_missing) <- list_col_names
+
+#normalize depth
+tair10_missing <- tair10_missing %>%
+  mutate(Norm_depth = Depth / sum(tair10_missing$Depth))
+
+############################################################
+#atac peaks
+
+path.atac = "/Users/alanyocca/Documents/01_athal_cns/06_model_depth/01_ATAC/"
+file.names.atac <- dir(path.atac, pattern="*kb.txt", full.names = T)
+
+list_of_files <- file.names.atac
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#list_col_names <- c("Type","Coords","Depth")
+for (i in 1:length(loaded_list_of_files)) {
+  colnames(loaded_list_of_files[[i]]) <- list_col_names
+}
+combined_df <- loaded_list_of_files[[1]]
+for (i in 2:length(loaded_list_of_files)) {
+  combined_df <- merge(combined_df,loaded_list_of_files[[i]], by = c("Type", "Coords"))
+  combined_df$Depth <- combined_df$Depth.x + combined_df$Depth.y
+  combined_df <- combined_df[,c(1,2,5)]
+}
+
+#normalize depth
+combined_df <- combined_df %>%
+  mutate(Norm_depth = Depth / sum(combined_df$Depth))
+combined_atac <- combined_df
+
+
+#############################################
+#across all
+cns_model_depth <- rbind(combined_coll,combined_moved,tair10_cns_model_depth, tair10_missing, combined_atac)
+
+#graph this bitch!!!
+
+#flip the sign of everything (multiply by negative 1)
+cns_model_depth$Coords_flip <- -1*cns_model_depth$Coords
+
+#cns_model_depth_graph <- cns_model_depth[cns_model_depth$Type == "tair10" | cns_model_depth$Type == "tair10_missing",] %>%
+cns_model_depth$Type_f = factor(cns_model_depth$Type, levels=c('tair10','coll','tair10_missing','moved','ATAC'))
+```
+
+
+graph code
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#save dataframe:
+#write.table(cns_model_depth, file = "/Users/alanyocca/Documents/01_athal_cns/06_model_depth/cns_atac_model_depth.txt", sep = "\t", quote = F, row.names = F)
+#read in dataframe
+cns_model_depth <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/06_model_depth/cns_atac_model_depth.txt", sep = "\t", row.names = NULL,header = T)
+
+#reorder stack
+#cns_model_depth$Type_f = factor(cns_model_depth$Type, levels=c('tair10','coll','tair10_missing','moved','ATAC'))
+
+#rename things
+colnames(cns_model_depth) <- c("Feature","Coords","Depth","Density","Gene Distance","Type_f")
+cns_model_depth$Feature <- gsub("tair10_missing","PAV",cns_model_depth$Feature)
+cns_model_depth$Feature <- gsub("tair10","Col-0",cns_model_depth$Feature)
+cns_model_depth$Feature <- gsub("coll","Collinear",cns_model_depth$Feature)
+cns_model_depth$Feature <- gsub("moved","PosV",cns_model_depth$Feature)
+
+#redo factors
+cns_model_depth$Type_f = factor(cns_model_depth$Feature, levels=c('Col-0','Collinear','PAV','PosV','ATAC'))
+levels(cns_model_depth$Type_f)
+
+cns_model_depth_graph <- cns_model_depth %>%
+  ggplot(aes(x = `Gene Distance`, y = `Density`)) +
+  geom_line(aes(colour = Feature))+
+  ylim(0,0.00175) +
+  xlim(-750,750) +
+  ggtitle("Feature density relative to the proximate gene") +
+  facet_grid(rows = vars(Type_f)) +
+  scale_color_discrete(breaks=c('Col-0','Collinear','PAV','PosV','ATAC')) +
+  theme_minimal() +
+  xlab("Gene Distance (base-pairs)") +
+  theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        axis.text.y = element_blank(),
+        title = element_text(size=25),
+        strip.text.y = element_text(size = 20)) 
+cns_model_depth_graph
+  #cns_model_depth_graph_1500_all <- cns_model_depth_graph
+#cns_model_depth_graph_all_0.0015 <- cns_model_depth_graph
+#cns_model_depth_graph_2500_0.002 <- cns_model_depth_graph
+
+#savsies
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/06_model_depth/cns_atac_model_depth_graph_stacked.png", units = "in", res = 600, width = 11, height = 8.5)
+  plot(cns_model_depth_graph)
+  dev.off()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/06_model_depth/cns_atac_model_depth_graph_stacked.pdf", width = 11, height = 8.5)
+  plot(cns_model_depth_graph)
+  dev.off()
+
+
+
+scales::show_col(scales::hue_pal()(5))
+
+
+#save dataframe:
+#write.table(cns_model_depth, file = "/Users/alanyocca/Documents/01_athal_cns/06_model_depth/cns_atac_model_depth.txt", sep = "\t", quote = F, row.names = F)
+
+#larger spike for green upstream boundary
+#check the numbers
+cns_model_depth[cns_model_depth$Coords == 0,]
+#        Type Coords Depth   Norm_depth Coords_flip
+#2008    coll  10001 10124 2.205412e-04      -10001
+#14011  moved  10001   771 7.955261e-04      -10001
+#36009 tair10  10001    36 2.960373e-05      -10001
+#48012 tair10_missing  10001     0 0.000000e+00      -10001
+cns_model_depth[cns_model_depth$Coords == -2001,]
+#        Type Coords Depth   Norm_depth Coords_flip
+#1116    coll  -2001 41518 0.0009044279        2001
+#13119  moved  -2001  5184 0.0053489068        2001
+#24007 tair10  -2001  1039 0.0008543965        2001
+#36010 tair10_missing  -2001    35 0.0008757225        2001
+
+#about 5x more likely in moved than coll, so these movements
+#are not moving towards genes, many moving to deserts
+
+#I say rerun for +/- 5kb either direction
+
+#calculate approximate depth +/- 500 bp
+for (i in c("moved", "coll", "tair10", "tair10_missing")) {
+  #test
+  #i <- "moved"
+  print(sum(cns_model_depth$Norm_depth[cns_model_depth$Type == i & cns_model_depth$Coords > -499 & cns_model_depth$Coords < 501]))
+}
+
+#View(cns_model_depth[cns_model_depth$Type == i && cns_model_depth$Type == i,])
+#class(cns_model_depth$Coords)
+```
+
+Mess around with heat map instead of gene model:
+
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+cns_model_depth <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/cns_model_depth.txt", sep = "\t", row.names = , header = T)
+
+#cns_model_depth_graph <- cns_model_depth %>%
+#  ggplot(aes(x = Coords_flip, y = Norm_depth, colour = Type)) +
+#  geom_line(alpha = 0.5)+
+#  ylim(0,0.002) +
+#  xlim(-2500,2500) +
+#  ggtitle("CNS depth relative to the nearest gene across CNS classes")
+#cns_model_depth_graph
+
+col2 = "#d8e1cf" 
+col1 = "#438484"
+
+cns_model_depth <- cns_model_depth %>%
+  mutate(Depth_log=log(Depth))
+
+#cns_model_depth$Type_f = factor(cns_model_depth$Type, levels=c('tair10','coll','tair10_missing','moved'))
+cns_model_depth$Type_f = factor(cns_model_depth$Type, levels=c('moved','tair10','coll','tair10_missing'))
+
+test_heat_map <- cns_model_depth %>%
+  ggplot(aes(Coords_flip,Type_f, fill = Depth_log)) +
+  geom_tile() +
+  #scale_fill_gradient( trans = 'log' ) +
+  guides(fill=guide_legend(title="Density")) +
+  theme_bw() + theme_minimal() 
+test_heat_map
+#
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_density_heat_map.png", height = 480, width = 853, res = 100)
+  plot(test_heat_map)
+  dev.off()
+
+
+
+
+#test_heat_map_df <- data.frame(Type = rep("thing",100),
+#                               Xaxis = c(1:100),
+#                               heat = c(rep(-2,50),rep(2,50)))
+#test_heat_map <- test_heat_map_df %>%
+#  ggplot(aes(Xaxis,Type,fill = heat)) +
+#  geom_tile() +
+#  #scale_fill_gradient( trans = 'log' ) +
+#  guides(fill=guide_legend(title="Density")) +
+#  theme_bw() + theme_minimal() +
+#  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+#panel.background = element_blank(), axis.line = element_line(colour = "black"))
+#test_heat_map
+
+```
+
+
+
+
+
+
+
+

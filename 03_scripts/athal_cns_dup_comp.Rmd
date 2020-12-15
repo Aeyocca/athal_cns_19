@@ -1,0 +1,413 @@
+---
+title: "athal_cns_dup_comp"
+output: html_document
+---
+
+
+#compare CNS content for different types of duplications
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#load in ka/ks table
+ka_ks_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_30_mi_mo_cns_ka_ks.txt", sep = "\t")
+ka_ks_table <- ka_ks_table[,1:6]
+header <- c("Accession","Class_tag","Class_prop","Class_avg","Class_num","Class_dist")
+colnames(ka_ks_table) <- header
+
+#hmm this is not what I want, I want gene pairs......
+#loop through ka/ks output... going to be a long table..
+
+
+
+
+```
+
+Code Block: CNS_CORR_KS
+- ks not ka/ks
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#loop through tagged, use that as string to load in and add to master output df:
+#Accession  Gene  Ortholog  CNS_Count TAIR_CNS_Count  CNS_Change  Ka_Ks Type
+meta_info = data.frame("Accession" = character(),
+                       "Gene" = character(),
+                       "Ortholog" = character(),
+                       "CNS_Count" = numeric(),
+                       "TAIR_CNS_Count" = numeric(),
+                       "CNS_Change" = numeric(),
+                       "Ka_Ks" = numeric(),
+                       "Type" = character())
+
+path.tagged = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/"
+file.names <- dir(path.tagged, pattern="tagged.txt", full.names = T)
+list_of_files <- file.names
+accession_list <- gsub('/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/','',list_of_files) %>%
+  gsub('_cns_count_tagged.txt','',.)
+
+tair_cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/TAIR10_cns_count.txt", sep = "\t",  header=T, row.names = NULL)
+#get tair10 gene ids to same header name for merging
+header <- c("TAIR", "Ortholog", "TAIR_CNS_Count")
+colnames(tair_cns_count_table) <- header
+#don't need first column
+tair_cns_count_table <- tair_cns_count_table[,c(2,3)]
+
+for (acc_file in list_of_files) {
+  print(paste0("Starting on: ",acc_file))
+  acc_cns_count_table <- read.table(file = acc_file,stringsAsFactors = F, header = T, row.names = NULL)
+  acc_base <- gsub('/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/+','',acc_file) %>%
+    gsub('_cns_count_tagged.txt','',.)
+  #hmmm need to load in the ks dist to get that in too....
+  acc_ka_ks_table <- read.table(file = paste0("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/TAIR10_cds.", acc_base,"_maker.ka.ks.txt"), sep = "\t", row.names = NULL, header = T)
+  #only need three columns
+  acc_gene_ka_ks_table <- acc_ka_ks_table[,c(7,6,4)]
+  header <- c("Gene","Ortholog", "Ks")
+  colnames(acc_gene_ka_ks_table) <- header
+
+  acc_gene_ka_ks_cns_count_table <- merge(acc_cns_count_table,acc_gene_ka_ks_table)
+  #remove transcript ids in tair
+  acc_gene_ka_ks_cns_count_table$Ortholog <- gsub("\\.[0-9]", '', acc_gene_ka_ks_cns_count_table$Ortholog)
+
+  acc_tair_meta <- merge(acc_gene_ka_ks_cns_count_table, tair_cns_count_table, by = "Ortholog")
+
+  #nice, now add another column that is the change from TAIR10, so ACC - tair10: CNS_Count - TAIR_CNS_Count
+  acc_tair_meta <- acc_tair_meta %>%
+    mutate(CNS_Change = CNS_Count - TAIR_CNS_Count)
+  
+  meta_info <- rbind(meta_info,acc_tair_meta)
+  
+  #cleanup
+  rm(acc_tair_meta,acc_ka_ks_table,acc_gene_ka_ks_cns_count_table,acc_gene_ka_ks_table,acc_cns_count_table,acc_base)
+}
+#print(colnames(acc_tair_meta))
+#print(colnames(meta_info))
+#dev.off()
+
+#meta_table:
+#[1] "Ortholog"       "Gene"           "CNS_Count"      "Type"           "Ks"             "TAIR_CNS_Count" "CNS_Change" 
+
+#add column labelling duplicate types.. hmmmm
+#have hmm if else that can work???
+#what if > 1 type? shouldn't happen, go check that
+#hmm will happen... o whale get there when we get there
+athal_dup_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/wang_athal_dup_type.csv",sep = ",",row.names = NULL)
+
+#vectorize this bitch
+#get alpha_dup_table to a unique list of every gene represented in the list with its appropriate duplicate tag
+#vectorize the addition of this tag to the meta_info table
+#loop through list of unique genes on either side of duplicate pair
+wgd_list_one <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "WGD",1]))
+wgd_list_two <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "WGD",2]))
+wgd_list <- unique(c(wgd_list_one,wgd_list_two))
+loc_list_one <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "local",1]))
+loc_list_two <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "local",2]))
+loc_list <- unique(c(loc_list_one,loc_list_two))
+trans_list_one <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "transposed",1]))
+trans_list_two <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "transposed",2]))
+#hmm only call non ancestral locus the transposed duplicate?
+#how many other in transposed second column not either WGD or proximal dup
+#length(trans_list_two[ ! trans_list_two %in% wgd_list & ! trans_list_two %in% loc_list])
+#length(trans_list_two[trans_list_two %in% loc_list])
+#hmm all them.............. ugh..... ancestral trans as separate class
+trans_list <- unique(c(trans_list_one))
+trans_ancestral <- unique(c(trans_list_two))
+
+#alrighty, lets get those with > 1 duplicate type....
+#overlap between vectors, pairwise....?
+#have 4 vectors.... ugh loop through?????????
+all_unique <- unique(c(wgd_list,loc_list,trans_list,trans_ancestral))
+all_orthologs <- unique(meta_info$Ortholog)
+
+
+dup_assingment <- data.frame(Gene = character(),
+                             Type = character(),
+                             stringsAsFactors = F)
+#gene <- "AT1G02010"
+for (gene in all_orthologs) {
+  #if gene is in > 1 type.. how to determine?
+  type_vect <- c()
+  if (length(loc_list[which(loc_list == gene)]) > 0) {
+    type_vect <- c(type_vect,"local")
+  }
+  if (length(trans_list[which(trans_list == gene)]) > 0) {
+    type_vect <- c(type_vect,"transposed")
+  }
+  if (length(trans_ancestral[which(trans_ancestral == gene)]) > 0) {
+    type_vect <- c(type_vect,"transpose_ancestral")
+  }
+  if (length(wgd_list[which(wgd_list == gene)]) > 0) {
+    type_vect <- c(type_vect,"WGD")
+  }
+  #class(trans_ancestral[which(trans_ancestral == gene)])
+  #class(type_vect)
+  if (length(type_vect) > 1) {
+    type_vect <- "Multi_dup_type"
+  }
+  if (length(type_vect) == 0) {
+    type_vect <- "No_Dup"
+  }
+  loop_vect <- c(gene,type_vect)
+  #class(dup_assingment$X.transposed.)
+  dup_assingment <- rbind(dup_assingment, loop_vect, stringsAsFactors = F)
+  #break
+  #?rbind()
+}
+#that should take about a minute
+#warnings()
+
+#lets test the cbind theory
+#tmp_start_df <- data.frame(Ortholog = c("AT1G","AT2G","AT3G"),
+#                           Other_column = c("one","two","three"),
+#                           stringsAsFactors = F)
+#new_info_df <- data.frame(Ortholog = c("AT1G","AT3G"),
+#                          Type = c("WGD","transposed"),
+#                          stringsAsFactors = F)
+
+
+da_header <- c("Ortholog","Dup_Type")
+colnames(dup_assingment) <- da_header
+#unique(dup_assingment$Dup_Type)
+#nrow(dup_assingment)
+
+#all_orthologs <- unique(meta_info$Ortholog)
+
+#?merge
+merged_df <- merge(meta_info,dup_assingment, all = T)
+#merged_df$Dup_Type[is.na(merged_df$Dup_Type)] <- "No_dup"
+#merged_df$Dup_Type[is.na(merged_df$Dup_Type)] <- "No_dup"
+#unique(merged_df$Dup_Type)
+
+#meta_info <- merged_df
+#class(meta_info$CNS_Count)
+#class(meta_info$Ks)
+#colnames(meta_info)
+#sapply(meta_info, class)
+#meta_info[,c(3,5,6,7)] <- as.numeric(unlist(meta_info[,c(3,5,6,7)]))
+
+merged_df_num <- merged_df
+merged_df_num[,c(3,5,6,7)] <- as.numeric(unlist(merged_df_num[,c(3,5,6,7)]))
+
+
+#tmp <- (meta_info[meta_info$Dup_Type == "WGD" & meta_info$CNS_Count > 0,])
+#tmp$CNS_Count[is.na(tmp$CNS_Count)] <- 0
+#mean(tmp[,3])
+#tmp_plot <- tmp %>%
+#  ggplot(aes(y = CNS_Count, x = Dup_Type)) +
+#  geom_violin()
+#tmp_plot
+#
+#> tmp <- (meta_info[meta_info$Dup_Type == "No_dup",])
+#> tmp$CNS_Count[is.na(tmp$CNS_Count)] <- 0
+#> mean(tmp[,3])
+#[1] 0.7063721
+#> tmp <- (meta_info[meta_info$Dup_Type == "WGD",])
+#> tmp$CNS_Count[is.na(tmp$CNS_Count)] <- 0
+#> mean(tmp[,3])
+#[1] 0.9809814
+
+#meta_info$CNS_Count[is.na(meta_info$CNS_Count)] <- 0
+
+#order data:
+merged_df_num$Dup_Type = factor(merged_df_num$Dup_Type,c("No_Dup","WGD","local","transpose_ancestral","transposed","Multi_dup_type"))
+
+meta_scat <- merged_df_num[merged_df_num$CNS_Count > 0,] %>%
+  ggplot(aes(y=CNS_Count, x = Dup_Type, fill = Dup_Type)) +
+  geom_violin(alpha = 0.1, adjust = 5) +
+  #xlim(-5,5) +
+  geom_boxplot(alpha = 0.1) +
+  ggtitle("CNS count for different duplicate classes across 30 accessions")
+#meta_scat
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/08_duplicate_analysis/dup_type_cns_count_violin.pdf", width = 12, height = 6)
+  plot(meta_scat)
+  dev.off()
+  
+meta_scat_zero <- merged_df_num %>%
+  ggplot(aes(y=CNS_Count, x = Dup_Type, fill = Dup_Type)) +
+  geom_violin(alpha = 0.1, adjust = 5) +
+  #xlim(-5,5) +
+  geom_boxplot(alpha = 0.1) +
+  ggtitle("CNS count for different duplicate classes across 30 accessions")
+#meta_scat_zero
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/08_duplicate_analysis/dup_type_cns_count_violin_zero.pdf", width = 12, height = 6)
+  plot(meta_scat_zero)
+  dev.off()
+
+summary(merged_df_num[merged_df_num$Dup_Type == "No_Dup",3])
+summary(merged_df_num[merged_df_num$Dup_Type == "WGD",3])
+summary(merged_df_num[merged_df_num$Dup_Type == "local",3])
+summary(merged_df_num[merged_df_num$Dup_Type == "No_Dup" & merged_df_num$CNS_Count > 0,3])
+summary(merged_df_num[merged_df_num$Dup_Type == "WGD" & merged_df_num$CNS_Count > 0,3])
+
+#####################################################
+#rest is testing / nonsense
+
+meta_scat <- merged_df[] %>%
+  ggplot(aes(y=CNS_Count, x = Dup_Type, fill = Dup_Type)) +
+  geom_violin(alpha = 0.1, adjust = 5) +
+  #xlim(-5,5) +
+  geom_boxplot(alpha = 0.1) +
+  ggtitle("CNS count for different duplicate classes across 30 accessions")
+
+
+meta_scat <- meta_info[meta_info$CNS_Count > 0,] %>%
+  ggplot(aes(x = CNS_Count, fill = Dup_Type)) +
+  geom_density(alpha = 0.5, adjust = 5)
+meta_scat
+
+rm(tmp)
+tmp <- merged_df$CNS_Count[! is.na(merged_df$CNS_Count)]
+summary(tmp)
+tmp <- merged_df[complete.cases(merged_df$CNS_Count > 0),]
+class(tmp)
+tmp <- tmp[! tmp$Dup_Type[is.na(tmp$Dup_Type)],]
+View(tmp$Dup_Type[is.na(tmp$Dup_Type)])
+meta_scat <- merged_df_num[merged_df_num$CNS_Count > 0,] %>%
+  ggplot(aes(y=CNS_Count, x = Dup_Type, fill = Dup_Type)) +
+  geom_violin(alpha = 0.1, adjust = 5) +
+  #xlim(-5,5) +
+  geom_boxplot(alpha = 0.1) +
+  ggtitle("CNS count for different duplicate classes across 30 accessions")
+meta_scat
+
+summary(merged_df_num[merged_df_num$Dup_Type == "No_Dup",3])
+summary(merged_df_num[merged_df_num$Dup_Type == "WGD",3])
+summary(merged_df_num[merged_df_num$Dup_Type == "No_Dup" & merged_df_num$CNS_Count > 0,3])
+summary(merged_df_num[merged_df_num$Dup_Type == "WGD" & merged_df_num$CNS_Count > 0,3])
+
+View(tmp)
+nrow(merged_df[merged_df$Dup_Type == "local",])
+class(merged_df)
+
+length(as.numeric(meta_info[meta_info$Dup_Type == "No_Dup",3]))
+wx_test <- wilcox.test(as.numeric(meta_info[meta_info$Dup_Type == "WGD",3]),as.numeric(meta_info[meta_info$Dup_Type == "No_dup",3]))
+wx_test$p.value
+
+wgd_sort <- sort(as.numeric(meta_info[meta_info$Dup_Type == "WGD",3]))
+no_dup_sort <- sort(as.numeric(meta_info[meta_info$Dup_Type == "No_dup",3]))
+sort_comp_df <- data.frame(WGD = wgd_sort,
+                           No_dup = no_dup_sort)
+sort_comp_plot <- sort_comp_df %>%
+  ggplot(aes(x = WGD, y = No_dup)) +
+  geom_point()
+sort_comp_plot
+#
+
+#png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_ka_ks.png")
+#  plot(meta_scat)
+#  dev.off()
+  
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/08_duplicate_analysis/dup_type_cns_count_violin.pdf", width = 12, height = 6)
+  plot(meta_scat)
+  dev.off()
+
+```
+
+
+Code Block: FM_COUNT
+- duplicate analysis for CNS counts from fractionation mutagenesis approach
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+meta_info = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_fm.txt",sep = "\t",row.names = NULL, header = T)
+meta_info = meta_info %>% 
+  mutate(CNS_Change_Tag = ifelse(CNS_Change > 0, "CNS_Gain",
+                               ifelse(CNS_Change < 0, "CNS_loss", "No_CNS_Change")))
+
+athal_dup_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/wang_athal_dup_type.csv",sep = ",",row.names = NULL)
+
+
+#might just do this shit differently
+
+wgd_list_one <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "WGD",1]))
+wgd_list_two <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "WGD",2]))
+wgd_list <- unique(c(wgd_list_one,wgd_list_two))
+loc_list_one <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "local",1]))
+loc_list_two <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "local",2]))
+loc_list <- unique(c(loc_list_one,loc_list_two))
+trans_list_one <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "transposed",1]))
+trans_list_two <- as.vector(unlist(athal_dup_table[athal_dup_table$V3 == "transposed",2]))
+#hmm only call non ancestral locus the transposed duplicate? More importantly, how do you know??
+#how many other in transposed second column not either WGD or proximal dup
+#length(trans_list_two[ ! trans_list_two %in% wgd_list & ! trans_list_two %in% loc_list])
+#length(trans_list_two[trans_list_two %in% loc_list])
+#hmm all them.............. ugh..... ancestral trans as separate class
+
+trans_list <- unique(c(trans_list_one))
+trans_ancestral <- unique(c(trans_list_two))
+
+#alrighty, lets get those with > 1 duplicate type....
+#overlap between vectors, pairwise....?
+#have 4 vectors.... ugh loop through?????????
+all_unique <- unique(c(wgd_list,loc_list,trans_list,trans_ancestral))
+all_orthologs <- unique(meta_info$Ortholog)
+
+dup_assingment <- data.frame(Gene = character(),
+                             Type = character(),
+                             stringsAsFactors = F)
+#gene <- "AT1G02010"
+for (gene in all_orthologs) {
+  #if gene is in > 1 type.. how to determine?
+  type_vect <- c()
+  if (length(loc_list[which(loc_list == gene)]) > 0) {
+    type_vect <- c(type_vect,"local")
+  }
+  if (length(trans_list[which(trans_list == gene)]) > 0) {
+    type_vect <- c(type_vect,"transposed")
+  }
+  if (length(trans_ancestral[which(trans_ancestral == gene)]) > 0) {
+    type_vect <- c(type_vect,"transpose_ancestral")
+  }
+  if (length(wgd_list[which(wgd_list == gene)]) > 0) {
+    type_vect <- c(type_vect,"WGD")
+  }
+  #class(trans_ancestral[which(trans_ancestral == gene)])
+  #class(type_vect)
+  if (length(type_vect) > 1) {
+    type_vect <- "Multi_dup_type"
+  }
+  if (length(type_vect) == 0) {
+    type_vect <- "No_Dup"
+  }
+  loop_vect <- c(gene,type_vect)
+  #class(dup_assingment$X.transposed.)
+  dup_assingment <- rbind(dup_assingment, loop_vect, stringsAsFactors = F)
+  #break
+  #?rbind()
+}
+colnames(dup_assingment) <- c("Ortholog","Duplication Type")
+
+merged_df <- merge(meta_info,dup_assingment, all = T)
+merged_df_num <- merged_df
+merged_df_num[,c(3,5,6,7)] <- as.numeric(unlist(merged_df_num[,c(3,5,6,7)]))
+
+#order data:
+merged_df_num$`Duplication Type` = factor(merged_df_num$`Duplication Type`,c("No_Dup","WGD","local","transpose_ancestral","transposed","Multi_dup_type"))
+
+meta_scat <- merged_df_num[merged_df_num$CNS_Count > 0,] %>%
+  ggplot(aes(y=CNS_Count, x = `Duplication Type`, fill = `Duplication Type`)) +
+  geom_violin(alpha = 0.1, adjust = 5) +
+  #xlim(-5,5) +
+  geom_boxplot(alpha = 0.1) +
+  ggtitle("CNS count for genes with > 0 CNS \nfor different duplicate classes across 30 ecotypes") +
+  ylim(0,50)
+meta_scat
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/dup_comp_cns_fm.png")
+  plot(meta_scat)
+  dev.off()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/dup_comp_cns_fm.pdf")
+  plot(meta_scat)
+  dev.off()
+  
+```
+
+

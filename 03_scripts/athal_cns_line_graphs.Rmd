@@ -1,0 +1,2127 @@
+---
+title: "athal_cns_line_graphs"
+output: html_document
+---
+
+
+devtools::install_github("collectivemedia/tictoc")
+library(tictoc)
+
+
+Line graph time! Here is the methodology:
+- lists of CNS, one per new line
+- each accession has their own file
+- each assession has one file for missing and one for moved
+- create line graph showing:
+  - average number of uniq CNSs called as either missing or non-syntenic as more accessions are added
+- to do this we need to:
+  - load everything into their own dataframe
+  - randomly sample dataframes from 1 to the number of accessions you have many times
+  - take the average number of unique loss / non-syntenic uniq CNSs across all random samples
+- plot the above and you got yourself a line graph
+- Think I will split this into a few different code chunks for readability:
+  - load data
+  - subsample
+  - plot graph
+- There may be a few things going on that I didn't carry over from athal_cns.Rmd, if there is something you think you wrote but can't find it, check there first before just rewriting.
+
+
+
+Code Block: CREATE.COUNTS.DF.MISSING
+code block produces:
+- dataframe cns_counts columns:
+  - CNS
+    - name of unique cns
+  - Count
+    - number of accessions missing this cns
+  - Accession
+    - comma separated list of acessions missing that cns
+- dataframe combined_df columns:
+  - CNS
+    - name of cns, can be repeated in later rows
+  - Accession
+    - name of accession missing that cns
+```{r}
+#rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line")
+library(tidyverse)
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line"
+file.names.missing <- dir(path.missing, pattern="missing.txt")
+
+#***********KEEP ONLY THE SET FROM GAN 2011******************
+# going to take this out, funnel lists of interest into another directory
+#file.names.missing <- c("bur_0_missing.txt","can_0_missing.txt","ct_1_missing.txt","edi_0_missing.txt","hi_0_missing.txt","kn_0_missing.txt","ler_0_missing.txt","mt_0_missing.txt","no_0_missing.txt","oy_0_missing.txt","po_0_missing.txt","rsch_4_missing.txt","sf_2_missing.txt","tsu_0_missing.txt" ,"wil_2_missing.txt","ws_0_missing.txt","wu_0_missing.txt","zu_0_missing.txt")
+
+#list_of_files <- paste0("cns_calls/acc_missing/",file.names.missing)
+list_of_files <- file.names.missing
+
+accession_list <- gsub('cns_calls/acc_missing/tmp_line/','',list_of_files) %>%
+  gsub('_missing.txt','',.)
+
+#View(accession_list)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+#names(loaded_list_of_files[[1]])
+
+combined_list <- character()
+combined_df <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+max_genomes <- length(accession_list)
+#temp
+i = 33
+j = 1
+for (i in 1:max_genomes) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df <- rbind(combined_df,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+uniq_list <- unique(combined_list)
+
+cns_counts <- data.frame(CNS=character(),Count=integer(), Accession=character(), stringsAsFactors = F)
+for (i in uniq_list) {
+  count <- length(grep(i,combined_list))
+  rows_to_get_accesssion_names <- grep(i,combined_list)
+  accessions_vector <- character()
+  for (j in rows_to_get_accesssion_names) {
+    accessions_vector <- c(accessions_vector,as.character(factor(combined_df[j,2])))
+  }
+  accessions_csv <- paste(accessions_vector,collapse = ",")
+  cns_counts[nrow(cns_counts) + 1,] = c(i,count,accessions_csv)
+}
+
+#tidy up
+rm(accession_list,accessions_csv, accessions_vector,col_names_combined_df,combined_list,count,file.names.missing,i,j,list_of_files,path.missing,rows_to_get_accesssion_names,uniq_list,loaded_list_of_files)
+
+#View(accession_list)
+```
+  
+Code Block: Line graphs missing
+saves line graph as pdf
+DEPENDENT: CREATE.COUNTS.DF.MISSING
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/")
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line"
+file.names.missing <- dir(path.missing, pattern="missing.txt")
+
+##only the gan subset
+#file.names.missing.gan <- c("bur_0_missing.txt","can_0_missing.txt","ct_1_missing.txt","edi_0_missing.txt","hi_0_missing.txt","kn_0_missing.txt","ler_0_missing.txt","mt_0_missing.txt","no_0_missing.txt","oy_0_missing.txt","po_0_missing.txt","rsch_4_missing.txt","sf_2_missing.txt","tsu_0_missing.txt" ,"wil_2_missing.txt","ws_0_missing.txt","wu_0_missing.txt","zu_0_missing.txt")
+
+##try just the ones you assembled
+#index.SRR <- grep("SRR*", file.names.missing)
+#file.names.SRR <- file.names.missing[index.SRR]
+
+##remove the three SRR accessions that are fishy
+fishy <- c("SRR1945758_bwa_alt_3_pbj_6_rename_missing.txt", "SRR1946330_bwa_alt_3_pbj_6_rename_missing.txt", "SRR1946555_bwa_alt_3_pbj_6_rename_missing.txt")
+file.names.missing.all.min.fish <- file.names.missing [! file.names.missing %in% fishy ]
+
+#list_of_files <- file.names.missing
+#list_of_files <- file.names.SRR
+#list_of_files <- file.names.missing.gan
+list_of_files <- file.names.missing.all.min.fish
+
+loaded_list_of_files <- lapply(list_of_files,read.table)
+
+max_number <- as.integer(length(loaded_list_of_files))
+one_less <- max_number - 1
+
+cns_means_stds <- data.frame(Accessions=integer(),Mean=numeric(),Std=numeric())
+#in_one_loop <- 0
+for (i in 1:max_number) {
+  if (i == 1) {
+    numbered_list <- numeric()
+    for (j in 1:max_number) {
+      numbered_list <- c(numbered_list,length(as.vector(unlist(loaded_list_of_files[[j]]))))
+   }
+#    rm(final_list,acc_to_grab)
+    mean_cns <- mean(numbered_list)
+    std_cns <- sd(numbered_list)
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+#    in_one_loop <- in_one_loop + 1
+    rm(mean_cns,std_cns,numbered_list)
+  }
+  else if (i == one_less) {
+#should be straight forward to use this, just have to think of how to parse later, load all the lists in and see how some of this stuff works
+    numbered_list <- numeric()
+    list_to_take <- combn(max_number,one_less)
+    for (j in 1:ncol(list_to_take)) {
+      final_list <- numeric()
+      for (k in 1:nrow(list_to_take)) {
+        final_list <- c(final_list,as.vector(unlist(loaded_list_of_files[[list_to_take[k,j]]])))
+      }
+      numbered_list <- c(numbered_list,length(unique(final_list)))
+      rm(final_list)
+    }
+    mean_cns <- mean(numbered_list)
+    std_cns <- sd(numbered_list)
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+    rm(mean_cns,std_cns,numbered_list)
+  }
+  else if (i == max_number) {
+    numbered_list <- numeric()
+    final_list <- numeric()
+    for (j in 1:max_number) {
+      final_list <- c(final_list,as.vector(unlist(loaded_list_of_files[[j]])))
+   }
+#    rm(final_list,acc_to_grab)
+    numbered_list <- length(unique(final_list))
+    mean_cns <- mean(numbered_list)
+    std_cns <- 0
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+    rm(mean_cns,std_cns,numbered_list)    
+  }
+  else {
+    numbered_list <- integer()
+    for (j in 1:1000) {
+      acc_to_grab <- sample(1:max_number,i,replace=F)
+      final_list <- integer()
+      for (k in acc_to_grab) {
+        final_list <- c(final_list,as.vector(unlist(loaded_list_of_files[[k]])))
+      }
+      numbered_list <- c(numbered_list,length(unique(final_list)))
+      rm(final_list,acc_to_grab)
+    }
+    mean_cns <- mean(numbered_list)
+    std_cns <- sd(numbered_list)
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+#    in_one_loop <- in_one_loop + 1
+    rm(mean_cns,std_cns,numbered_list)
+  }
+}
+
+#cns_all <- cns_means_stds
+#cns_all$Set <- rep("All",max_number)
+#cns_srr <- cns_means_stds
+#cns_srr$Set <- rep("SRR",max_number)
+#cns_gan <- cns_means_stds
+#cns_gan$Set <- rep("Gan",max_number)
+#cns_amf <- cns_means_stds
+#cns_amf$Set <- rep("All Min Fishy",max_number)
+
+missing_cns_means_stds <- rbind(cns_all,cns_srr,cns_gan,cns_amf)
+
+#add zero zero point
+zero_point <- data.frame(Accessions=0, Mean=0,Std=0)
+
+missing_cns_means_stds <- rbind(zero_point,missing_cns_means_stds,stringsAsFactors = F)
+
+#library(ggplot2)
+
+#Spice it up a bit
+missing_cns_plot <- ggplot(data=missing_cns_means_stds, aes(x=Accessions, y=Mean, group = missing_cns_means_stds$Set, colour = missing_cns_means_stds$Set)) +
+  geom_errorbar(aes(ymin=Mean-Std, ymax=Mean+Std), width=.1) +
+  geom_line() +
+  geom_point() +
+  xlab("Number of Accessions") +
+  ylab("Mean Missing CNSs") +
+  ggtitle("Unique Missing CNSs") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = rel(2)), panel.background = element_rect(colour = "gray92"), axis.title.y = element_text(size = rel(2), angle = 90),axis.title.x = element_text(size = rel(2), angle = 0), panel.grid.major.x = element_blank(), axis.text = element_text(size = rel(2)))
+missing_cns_plot
+
+#save as pdf
+#?pdf()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/missing_cns_line_graph_overlay.pdf", width = 12, height = 6)
+  plot(missing_cns_plot)
+  dev.off()
+
+```
+
+
+Code Block: CREATE.COUNTS.DF.MOVED
+code block produces:
+- dataframe cns_counts columns:
+  - CNS
+    - name of unique cns
+  - Count
+    - number of accessions missing this cns
+  - Accession
+    - comma separated list of acessions missing that cns
+- dataframe combined_df columns:
+  - CNS
+    - name of cns, can be repeated in later rows
+  - Accession
+    - name of accession missing that cns
+```{r}
+rm(list=ls(all=TRUE))
+setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line")
+library(tidyverse)
+
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line"
+file.names.moved <- dir(path.moved, pattern="moved.txt")
+
+#***********KEEP ONLY THE SET FROM GAN 2011******************
+# going to take this out, funnel lists of interest into another directory
+#file.names.moved <- c("bur_0_moved.txt","can_0_moved.txt","ct_1_moved.txt","edi_0_moved.txt","hi_0_moved.txt","kn_0_moved.txt","ler_0_moved.txt","mt_0_moved.txt","no_0_moved.txt","oy_0_moved.txt","po_0_moved.txt","rsch_4_moved.txt","sf_2_moved.txt","tsu_0_moved.txt" ,"wil_2_moved.txt","ws_0_moved.txt","wu_0_moved.txt","zu_0_moved.txt")
+
+#list_of_files <- paste0("cns_calls/acc_missing/",file.names.missing)
+list_of_files <- file.names.moved
+
+accession_list <- gsub('cns_calls/acc_moved/tmp_line','',list_of_files) %>%
+  gsub('_moved.txt','',.)
+
+#View(accession_list)
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+#names(loaded_list_of_files[[1]])
+
+combined_list <- character()
+combined_df_moved <- data.frame(CNS=character(),Accession=character(),stringsAsFactors = F)
+col_names_combined_df <- c("CNS","Accession")
+for (i in 1:length(accession_list)) {
+  current_accession_list <- as.vector(unlist(loaded_list_of_files[[i]]))
+  combined_list <- c(combined_list,as.vector(unlist(loaded_list_of_files[[i]])))
+  for (j in 1:length(as.vector(unlist(loaded_list_of_files[[i]])))) {
+    to_be_r_bound <- c(current_accession_list[j],as.character(factor(names(loaded_list_of_files[[i]]))))
+    transposed <- as.data.frame(t(to_be_r_bound))
+    colnames(transposed) <- col_names_combined_df
+    combined_df_moved <- rbind(combined_df_moved,transposed)
+    rm(transposed,to_be_r_bound)
+  }
+  rm(current_accession_list)
+}
+
+uniq_list <- unique(combined_list)
+
+cns_counts <- data.frame(CNS=character(),Count=integer(), Accession=character(), stringsAsFactors = F)
+for (i in uniq_list) {
+  count <- length(grep(i,combined_list))
+  rows_to_get_accesssion_names <- grep(i,combined_list)
+  accessions_vector <- character()
+  for (j in rows_to_get_accesssion_names) {
+    accessions_vector <- c(accessions_vector,as.character(factor(combined_df_moved[j,2])))
+  }
+  accessions_csv <- paste(accessions_vector,collapse = ",")
+  cns_counts[nrow(cns_counts) + 1,] = c(i,count,accessions_csv)
+}
+
+#tidy up
+rm(accession_list,accessions_csv, accessions_vector,col_names_combined_df,combined_list,count,file.names.moved,i,j,list_of_files,path.moved,rows_to_get_accesssion_names,uniq_list,loaded_list_of_files)
+```
+  
+
+Code Block: Line graphs moved
+saves line graph as pdf 
+DEPENDENT: CREATE.COUNTS.DF.MOVED
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line")
+
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line"
+file.names.moved <- dir(path.moved, pattern="moved.txt")
+
+##only the gan subset
+#file.names.moved.gan <- c("bur_0_moved.txt","can_0_moved.txt","ct_1_moved.txt","edi_0_moved.txt","hi_0_moved.txt","kn_0_moved.txt","ler_0_moved.txt","mt_0_moved.txt","no_0_moved.txt","oy_0_moved.txt","po_0_moved.txt","rsch_4_moved.txt","sf_2_moved.txt","tsu_0_moved.txt" ,"wil_2_moved.txt","ws_0_moved.txt","wu_0_moved.txt","zu_0_moved.txt")
+
+##try just the ones you assembled
+#index.SRR <- grep("SRR*", file.names.moved)
+#file.names.SRR <- file.names.moved[index.SRR]
+
+##remove the three SRR accessions that are fishy
+fishy <- c("SRR1945758_bwa_alt_3_pbj_6_rename_moved.txt", "SRR1946330_bwa_alt_3_pbj_6_rename_moved.txt", "SRR1946555_bwa_alt_3_pbj_6_rename_moved.txt")
+file.names.moved.all.min.fish <- file.names.moved [! file.names.moved %in% fishy ]
+
+#list_of_files <- file.names.moved
+#list_of_files <- file.names.SRR
+#list_of_files <- file.names.moved.gan
+list_of_files <- file.names.moved.all.min.fish
+
+loaded_list_of_files <- lapply(list_of_files,read.table)
+
+max_number <- as.integer(length(loaded_list_of_files))
+one_less <- max_number - 1
+
+cns_means_stds <- data.frame(Accessions=integer(),Mean=numeric(),Std=numeric())
+#in_one_loop <- 0
+for (i in 1:max_number) {
+  if (i == 1) {
+    numbered_list <- numeric()
+    for (j in 1:max_number) {
+      numbered_list <- c(numbered_list,length(as.vector(unlist(loaded_list_of_files[[j]]))))
+   }
+#    rm(final_list,acc_to_grab)
+    mean_cns <- mean(numbered_list)
+    std_cns <- sd(numbered_list)
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+#    in_one_loop <- in_one_loop + 1
+    rm(mean_cns,std_cns,numbered_list)
+  }
+  else if (i == one_less) {
+#should be straight forward to use this, just have to think of how to parse later, load all the lists in and see how some of this stuff works
+    numbered_list <- numeric()
+    list_to_take <- combn(max_number,one_less)
+    for (j in 1:ncol(list_to_take)) {
+      final_list <- numeric()
+      for (k in 1:nrow(list_to_take)) {
+        final_list <- c(final_list,as.vector(unlist(loaded_list_of_files[[list_to_take[k,j]]])))
+      }
+      numbered_list <- c(numbered_list,length(unique(final_list)))
+      rm(final_list)
+    }
+    mean_cns <- mean(numbered_list)
+    std_cns <- sd(numbered_list)
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+    rm(mean_cns,std_cns,numbered_list)
+  }
+  else if (i == max_number) {
+    numbered_list <- numeric()
+    final_list <- numeric()
+    for (j in 1:max_number) {
+      final_list <- c(final_list,as.vector(unlist(loaded_list_of_files[[j]])))
+   }
+#    rm(final_list,acc_to_grab)
+    numbered_list <- length(unique(final_list))
+    mean_cns <- mean(numbered_list)
+    std_cns <- 0
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+    rm(mean_cns,std_cns,numbered_list)    
+  }
+  else {
+    numbered_list <- integer()
+    for (j in 1:1000) {
+      acc_to_grab <- sample(1:max_number,i,replace=F)
+      final_list <- integer()
+      for (k in acc_to_grab) {
+        final_list <- c(final_list,as.vector(unlist(loaded_list_of_files[[k]])))
+      }
+      numbered_list <- c(numbered_list,length(unique(final_list)))
+      rm(final_list,acc_to_grab)
+    }
+    mean_cns <- mean(numbered_list)
+    std_cns <- sd(numbered_list)
+    cns_means_stds[nrow(cns_means_stds) + 1,] = c(i,mean_cns,std_cns)
+#    in_one_loop <- in_one_loop + 1
+    rm(mean_cns,std_cns,numbered_list)
+  }
+}
+
+#cns_all <- cns_means_stds
+#cns_all$Set <- rep("All",max_number)
+#zero_point <- data.frame(Accessions=0, Mean=0,Std=0,Set="All")
+#cns_all <- rbind(zero_point,cns_all,stringsAsFactors = F)
+
+#cns_srr <- cns_means_stds
+#cns_srr$Set <- rep("SRR",max_number)
+#zero_point <- data.frame(Accessions=0, Mean=0,Std=0,Set="SRR")
+#cns_srr <- rbind(zero_point,cns_srr,stringsAsFactors = F)
+
+#cns_gan <- cns_means_stds
+#cns_gan$Set <- rep("Gan",max_number)
+#zero_point <- data.frame(Accessions=0, Mean=0,Std=0,Set="Gan")
+#cns_gan <- rbind(zero_point,cns_gan,stringsAsFactors = F)
+
+cns_amf <- cns_means_stds
+cns_amf$Set <- rep("All Min Fishy",max_number)
+zero_point <- data.frame(Accessions=0, Mean=0,Std=0,Set="All Min Fishy")
+cns_amf <- rbind(zero_point,cns_amf,stringsAsFactors = F)
+
+moved_cns_means_stds <- rbind(cns_all,cns_srr,cns_gan,cns_amf)
+
+#add zero zero point
+#zero_point <- data.frame(Accessions=0, Mean=0,Std=0)
+
+#moved_cns_means_stds <- rbind(zero_point,moved_cns_means_stds,stringsAsFactors = F)
+
+#library(ggplot2)
+
+#Spice it up a bit
+moved_cns_plot <- ggplot(data=moved_cns_means_stds, aes(x=Accessions, y=Mean, group= moved_cns_means_stds$Set, colour = moved_cns_means_stds$Set)) +
+  geom_errorbar(aes(ymin=Mean-Std, ymax=Mean+Std), width=.1) +
+  geom_line() +
+  geom_point() +
+  xlab("Number of Accessions") +
+  ylab("Mean Moved CNSs") +
+  ggtitle("Unique Moved CNSs Across Accessions") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = rel(2)),axis.title.y = element_text(size = rel(2), angle = 90),axis.title.x = element_text(size = rel(2), angle = 0), panel.background =  element_rect(fill = "gray92"), panel.grid.major.x = element_blank(), axis.text = element_text(size = rel(2))) +
+  geom_smooth(method = 'lm', formula = y ~ log(x+1))
+moved_cns_plot
+
+#save as pdf
+#?pdf()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/moved_cns_line_graph_overlay.pdf", width = 12, height = 6)
+  plot(moved_cns_plot)
+  dev.off()
+
+```
+
+
+write it as a function to run subsampling on a bunch of different things back to back? eh, could just copy over the code.. yea write it out a little more
+
+
+try to get the equation of some deez curves
+
+```{r}
+#working on the dataframe: 
+#moved_cns_means_stds
+?lm()
+tmp_all <- moved_cns_means_stds[moved_cns_means_stds$Set == "All",]
+tmp_all <- tmp_all[tmp_all$Accessions != 0,]
+model <- lm(Mean ~ log(Accessions), data = tmp_all)
+#lm.ft=function(y,x1,x2) lm(y~x1+x2)
+
+
+pred_values <- data.frame(Accessions=c(50,60,70,80,90,100,150,200,300,500,1000,10000,100000))
+
+predict(model,pred_values)
+
+```
+
+This is getting pretty messy,
+
+Here, load in a file just to look at the distribution of the numbers present/absent and moved
+
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line")
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/"
+file.names.missing <- dir(path.missing, pattern="SRR", full.names = T)
+#?dir
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/"
+file.names.moved <- dir(path.moved, pattern="SRR", full.names = T)
+
+files <- file.names.moved
+
+loaded_list_of_files <- lapply(files,read.table)
+
+list_length<-length(loaded_list_of_files)
+
+cns_vect <- vector(mode="numeric")
+for (i in 1:list_length) {
+  current_accession_vect <- as.vector(unlist(loaded_list_of_files[[i]]))
+  current_accession_count <- length(current_accession_vect)
+  cns_vect <- c(cns_vect,current_accession_count)
+  rm(current_accession_vect,current_accession_count)
+#  break
+}
+
+#make density plot
+library(ggplot2)
+library(tidyverse)
+
+cns_df <- data.frame(Type="Moved", Counts=cns_vect)
+cns_avg <- round(mean(cns_vect),digits = 2)
+
+density_missing <- cns_df %>%
+  ggplot(aes(x=cns_df$Counts)) +
+  geom_density()
+
+density_missing
+
+geom_dotplot(binaxis='y', stackdir='center', dotsize=1)
+
+violin_missing <- cns_df %>%
+  ggplot(aes(factor(Type),cns_df$Counts)) +
+  geom_violin(trim=F) +
+  geom_dotplot(binaxis = 'y', stackdir = 'center', dotsize = 1) +
+  xlab("Variation Type") +
+  ylab("Count") +
+  ggtitle("Distribution of Variation Counts") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_hline(yintercept=cns_avg) +
+  geom_text(aes(1,cns_avg,label = paste0("Mean = ",cns_avg), vjust=-1, hjust=-1))
+
+violin_missing
+
+######Save missing
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/dist_var_counts_missing.png")
+    plot(violin_missing)
+    dev.off()
+
+######Save moved
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/dist_var_counts_moved.png")
+    plot(violin_missing)
+    dev.off()
+    
+    
+```
+
+
+Above was playing around, decided to make density plot instead of violin plot since violin plot really for comparing distributions and we are only looking at one at a time
+
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/tmp_line")
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/"
+file.names.missing <- dir(path.missing, pattern="SRR", full.names = T)
+#?dir
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/"
+file.names.moved <- dir(path.moved, pattern="SRR", full.names = T)
+
+files <- file.names.missing
+
+loaded_list_of_files <- lapply(files,read.table)
+
+list_length<-length(loaded_list_of_files)
+
+cns_vect <- vector(mode="numeric")
+for (i in 1:list_length) {
+  current_accession_vect <- as.vector(unlist(loaded_list_of_files[[i]]))
+  current_accession_count <- length(current_accession_vect)
+  cns_vect <- c(cns_vect,current_accession_count)
+  rm(current_accession_vect,current_accession_count)
+#  break
+}
+
+#make density plot
+library(ggplot2)
+library(tidyverse)
+library(ggrepel)
+
+cns_df <- data.frame(Type="Moved", Counts=cns_vect)
+cns_avg <- round(mean(cns_vect),digits = 2)
+
+#which.max(density(unlist(cns_vect)))
+#vect <- as.numeric(unlist(cns_df$Counts))
+#vect
+#max(density(vect)$y)
+#[1] 0.01292066
+
+density_plot <- cns_df %>%
+  ggplot(aes(cns_df$Counts, label=cns_df$Type)) +
+  geom_density(color=NA, fill="lightblue") +
+  ylim(0,(max(density(cns_df$Counts)$y))*1.1) +
+  geom_dotplot(binaxis = 'x', dotsize = 1, binwidth=10) +
+  xlab("Count") +
+  ylab("Density") +
+  ggtitle("Distribution of Variation Counts") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_vline(xintercept=cns_avg) +
+  geom_text(aes(cns_avg,0.01,label = paste0("Mean = ",cns_avg), hjust=-0.2))
+
+#?subset
+#test_sub <- subset(cns_df, Counts > 100)
+density_plot
+
+######Save missing
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/dist_var_counts_missing.png")
+    plot(density_plot)
+    dev.off()
+    
+ggsave("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/dist_var_counts_missing.svg",
+       density_plot,
+       width=8,
+       height=4.5)
+
+######Save moved
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/dist_var_counts_moved.png", width = 16, height = 9)
+    plot(density_plot)
+    dev.off()
+
+#install.packages("svglite")
+
+ggsave("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/dist_var_counts_moved.svg",
+       density_plot,
+       width=8,
+       height=4.5)
+
+
+```
+
+histogram of CNS lengths:
+- PosV and Coll
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/")
+library(tidyverse)
+library(ggplot2)
+
+
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/"
+file_names_coll <- dir(path, pattern="coll", full.names = T)
+file_names_moved <- dir(path, pattern="moved", full.names = T)
+
+file_names_coll_sans_col <- file_names_coll[!grepl("5757", file_names_coll)]
+file_names_moved_sans_col <- file_names_moved[!grepl("5757", file_names_moved)]
+#?dir
+
+#Loop through collinear and make df, first column "coll", second, number
+files <- file_names_coll_sans_col
+loaded_list_of_files <- lapply(files,read.table)
+list_length<-length(loaded_list_of_files)
+df_coll <- data.frame("Type" = character(),
+                      "Length" = numeric())
+for (i in 1:list_length) {
+  curr_acc_len <- as.vector(unlist(loaded_list_of_files[[i]]))
+  len <- length(curr_acc_len)
+  curr_acc_type <- rep("Coll", len)
+  curr_acc_df <- data.frame("Type" = curr_acc_type,
+                            "Length" = curr_acc_len)
+  df_coll <- rbind(df_coll,curr_acc_df)
+  rm(curr_acc_len,len,curr_acc_type,curr_acc_df)
+#  break
+}
+#above works 12-04-18,,, uhh going to be a lot loaded into memory though so watch out
+#Loop through moved and make df, first column "moved", second, number
+files <- file_names_moved_sans_col
+loaded_list_of_files <- lapply(files,read.table)
+list_length<-length(loaded_list_of_files)
+df_moved <- data.frame("Type" = character(),
+                      "Length" = numeric())
+for (i in 1:list_length) {
+  curr_acc_len <- as.vector(unlist(loaded_list_of_files[[i]]))
+  len <- length(curr_acc_len)
+  curr_acc_type <- rep("Moved", len)
+  curr_acc_df <- data.frame("Type" = curr_acc_type,
+                            "Length" = curr_acc_len)
+  df_moved <- rbind(df_moved,curr_acc_df)
+  rm(curr_acc_len,len,curr_acc_type,curr_acc_df)
+# break
+}
+
+#combine
+df_coll_moved <- rbind(df_coll,df_moved)
+
+#histogram (density plot??)
+coll_moved_density <- df_coll_moved %>%
+  ggplot(aes(x=df_coll_moved$Length, fill=df_coll_moved$Type)) +
+  geom_density() +
+  xlim(0,250) 
+#  geom_dotplot(binaxis = 'x', dotsize = .001, binwidth=30)
+coll_moved_density
+#Not very helpful, lets zoom in on the shorter things, check ranges out
+#lets try 0-250
+#1601 excluded
+#add the dots
+#hmm maybe dots was not a good idea... 1 million dots
+#moved_range <- range(as.vector(df_moved$Length))
+##13 - 225
+#coll_range <- range(as.vector(df_coll$Length))
+##1 - 1986, thats not right...
+##which(grepl("^1$",df_coll$Length))
+##df_coll[123918,]
+#Its pretty obvious based on the range and density plots moved are significantly shorter
+#save histogram and density plot zoomed in 
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/coll_moved_density.png")
+    plot(coll_moved_density)
+    dev.off()
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/coll_moved_hist.png")
+    plot(coll_moved_histogram)
+    dev.off()
+
+
+#lets look at just moved
+moved_histogram <- df_moved %>%
+  ggplot(aes(x=df_moved$Length, fill="red", color="none")) +
+  geom_histogram() +
+  geom_dotplot(data = df_moved[df_moved$Length > 50,],binaxis = 'x', dotsize = .1, binwidth=10)
+#  xlim(0,250) 
+moved_histogram
+length(as.vector(df_moved[df_moved$Length > 50,]$Length))
+#ugh, there are only 40 moved CNS over 50 bp across ALL 29 accessions, lets see if each of these 40 overlap an atac peak?? or a high %
+#percentage of all moved:
+length(as.vector(df_moved$Length))
+# 40 / 53821 = 0.0007432043
+#compared to all
+length(as.vector(df_coll[df_coll$Length > 50,]$Length))
+length(as.vector(df_coll$Length))
+# 215570 / 1052584 = 0.2048008
+
+#yea.. a bit different.. ugh
+
+#Mann-Whitney U test
+#?wilcox.test()
+wilcox.test(as.vector(df_moved$Length),as.vector(df_coll$Length))
+#
+#	Wilcoxon rank sum test with continuity correction
+#
+#data:  as.vector(df_moved$Length) and as.vector(df_coll$Length)
+#W = 2314600000, p-value < 2.2e-16
+#alternative hypothesis: true location shift is not equal to 0
+
+```
+
+Histogram of CNS length:
+- PosV, PAV, and Coll, at least one accession
+
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/")
+library(tidyverse)
+library(ggplot2)
+
+posv_vect <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/all_moved_uniq.txt", what = character())
+pav_vect <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/all_missing_uniq.txt", what = character())
+cns_df <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_Brassicaceae_at_gene_nodups_length_table.txt", header = F, row.names = NULL)
+colnames(cns_df) <- c("CNS","Length")
+
+cns_v_df <- cns_df %>%
+  mutate(Tag = ifelse(CNS %in% posv_vect, "PosV", 
+                      ifelse(CNS %in% pav_vect, "PAV", "Coll")))
+
+
+#format nicely
+cns_length_hist <- cns_v_df %>%
+  ggplot(aes(x = Length, fill = Tag)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,200) +
+  ggtitle("Length distribution for different classes of CNS") +
+  theme_minimal()
+cns_length_hist
+#dev.off()
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/cns_length_dist.pdf", width = 12, height = 6)
+  plot(cns_length_hist)
+  dev.off()
+
+#format nicely
+  median_length <- median(cns_v_df$Length)
+cns_length_hist <- cns_v_df %>%
+  ggplot(aes(x = Length)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,200) +
+  ggtitle("Length distribution for CNS") +
+  theme_minimal() +
+  geom_vline(xintercept = median_length) +
+  geom_text(aes(x=50, label=paste0("Median: ",median_length), y=0.025))
+cns_length_hist
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/cns_length_dist.png", units = "in", res = 400, width = 7.12, height = 5.5)
+  plot(cns_length_hist)
+  dev.off()
+```
+
+
+
+New data / graphs:
+- I hypothesize this is just a function of CNS size, check by:
+	- line graph
+	- CNS length vs. number of blast hits in filtered file
+	- do overall pattern and color by whether moved or collinear
+	- every blast hit will have a point 
+	- can do across all accessions (except tair10)
+
+CNS Length \t Number hits \t Type (Coll or Moved)
+```{r}
+#rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/")
+library(tidyverse)
+library(ggplot2)
+
+
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/"
+file_names <- dir(path, pattern="_len_count_line", full.names = T)
+
+file_names_sans_col <- file_names[!grepl("5757", file_names)]
+
+files <- file_names_sans_col
+loaded_list_of_files <- lapply(files,read.table)
+list_length<-length(loaded_list_of_files)
+df_len_count <- data.frame("Length" = numeric(),
+                           "Hits" = numeric(),
+                           "Type" = character(),
+                           "SRR" = character)
+for (i in 1:list_length) {
+  curr_acc_df <-loaded_list_of_files[[i]]
+  df_len_count <- rbind(df_len_count,curr_acc_df)
+  rm(curr_acc_df)
+#  break
+}
+names <- c("Length","Hits","Type","SRR")
+colnames(df_len_count) <- names
+View(head(df_len_count$V1))
+range(as.vector(df_len_count$V2))
+#1 - 1327, that doesn't seem right
+View(df_len_count[which(df_len_count$V2 > 10),])
+
+#lets try that dot plot
+View(head(df_len_count$Length))
+View(head(df_len_count$Hits))
+len_count_scat <- df_len_count %>%
+  ggplot(aes(x=df_len_count$Length, y=df_len_count$Hits)) +
+  geom_point()
+len_count_scat
+
+#save full thing
+png(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/len_count_scat_full.png")
+    plot(len_count_scat)
+    dev.off()
+
+#make one exculding everything with only 1 hit
+df_len_count_gt_one <- df_len_count[which(df_len_count$Hits > 1),]
+len_count_scat_gt_one <- df_len_count_gt_one %>%
+  ggplot(aes(x=df_len_count_gt_one$Length, y=df_len_count_gt_one$Hits, color=df_len_count_gt_one$Type)) +
+  geom_point()
+len_count_scat_gt_one
+
+    
+    
+```
+
+
+Venn diagram stuffs
+
+```{r}
+#rm(list=ls(all=TRUE))
+#import unique lists of CNS missing and moved
+#calculate overlaps:
+#doing it in here because think I did it wrong in bash:
+
+#load unique missing list
+cns_mi_unique <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/all_missing_uniq.txt")
+length(cns_mi_unique$V1)
+#[1] 1524
+#load unique moved list
+cns_mo_unique <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/all_moved_uniq.txt")
+length(cns_mo_unique$V1)
+#[1] 4801
+
+cns_mi_uni_vect <- as.vector(cns_mi_unique$V1)
+cns_mo_uni_vect <- as.vector(cns_mo_unique$V1)
+
+both <- intersect(cns_mi_uni_vect,cns_mo_uni_vect)
+length(both)
+#[1] 118
+#you hate to see that....
+#GO enrichment? just do web browser
+write.table(both, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/mi_mo_overlap.txt",quote = F,sep = ",", row.names = F, col.names = F)
+#nothing significant
+#well unclassified is significant so has not go term, ugh,,,
+#thats potentially bad news
+#What if we remove these from earlier go enrichments, o mee o my o man thats 16 more analyses to run, ugh
+#lets just see if it changes missing unique enrichment
+
+
+
+#unique to missing
+cns_mi_uni_only <- setdiff(cns_mi_uni_vect,cns_mo_uni_vect)
+length(cns_mi_uni_only)
+#[1] 1406
+#percent: 0.9225722
+#save
+write.table(both, file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_mi_only.txt",quote = F,sep = ",", row.names = F, col.names = F)
+
+
+cns_mo_uni_only <- setdiff(cns_mo_uni_vect,cns_mi_uni_vect)
+length(cns_mo_uni_only)
+#[1] 4683
+#percent: 0.9754218
+
+#make venn diagram
+
+
+
+```
+
+Need to cut the mi_mo_overlap to just those overlapping with atac also
+
+01-25-19:
+
+noisy gene check, seeing if transcriptionally variable genes associated with large number of CNS or with large number of CNS changes:
+citation for noisy genes:
+DOI 10.15252/msb.20188591 | Published online 24.01.2019
+Molecular Systems Biology (2019) 15, e8591
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#downloaded table EV2, had HVG (high variable genes) and LVG (low variability genes), gene lists across time points, get into two separate, two-column tidy data frames, combine, then combine with cns counts for tair10 genes and check that out, think about cns variability later (use missing / moved lists)
+
+hvg_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/HVG.csv", sep = ",", row.names = NULL, header = T)
+#colnames(hvg_table)
+
+lvg_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/LVG.csv", sep = ",", row.names = NULL, header = T)
+
+#gather 
+hvg_tidy <- hvg_table %>%
+  gather(key = "Stage", value = "Gene") 
+#then remove empty cells  
+hvg_tidy <- hvg_tidy[grepl("AT",hvg_tidy$Gene),]
+#add noisy tag
+hvg_tidy$Tag <- rep("HVG",nrow(hvg_tidy))
+#convert stage to just time, not hvg / lvg
+hvg_tidy$Stage <- gsub("_HVG","",hvg_tidy$Stage)
+
+#write.table(hvg_tidy, file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/hvg_tidy.txt", sep = "\t", quote = F, row.names = F)
+
+
+#gather 
+lvg_tidy <- lvg_table %>%
+  gather(key = "Stage", value = "Gene") 
+#then remove empty cells  
+lvg_tidy <- lvg_tidy[grepl("AT",lvg_tidy$Gene),]
+#lvg has 1000 per time point, hvg averages just under 445 per time point
+#add lvg tag
+lvg_tidy$Tag <- rep("LVG",nrow(lvg_tidy))
+lvg_tidy$Stage <- gsub("_LVG","",lvg_tidy$Stage)
+
+#write.table(lvg_tidy, file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/lvg_tidy.txt", sep = "\t", quote = F, row.names = F)
+
+
+#load in tair10 cns assignments
+#tair10_cns_assignment_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/tair10_cns_gene_assignment.txt", sep = "\t", row.names = NULL, header = T)
+#colnames(tair10_cns_assignment_table)
+##assign CNS based on functional associations as done previously
+#load in vector of CNS
+tair10_cns_assignment_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/tair10_cns_fun_assign.txt", sep = "\t", row.names = NULL, header = T)
+##format
+tair10_cns_assignment_table <- tair10_cns_assignment_table[,c(1:7)]
+colnames(tair10_cns_assignment_table) <- c("Accession","Gene","CNS_Count","List_CNS","Interval_size","Fun_assign","Fa_count")
+#sum(tair10_cns_assignment_table$CNS_Count)
+#fill in the rest of the genes before merging
+#rm(all_genes)
+all_genes <- as.data.frame(tair10_cns_assignment_table$Gene)
+colnames(all_genes) <- "Gene"
+
+#?merge()
+hvg_all_genes <- merge(hvg_tidy, all_genes, all = T, by = "Gene" )
+
+#merge lvg
+hvg_lvg_all_genes <- merge(hvg_all_genes,lvg_tidy, all = T)
+
+#rep at each time point genes that are not
+stage_list <- unique(as.vector(hvg_lvg_all_genes$Stage))
+#?collapse()
+#take NA out
+stage_list <- stage_list[!is.na(stage_list)]
+#View(stage_list)
+stage_list_character <- paste(stage_list, sep = ",", collapse = ",")
+other_rep_list <- rep("Other,",length(stage_list))
+hvg_lvg_all_genes$Tag[is.na(hvg_lvg_all_genes$Tag)] <- paste(rep("Other",length(stage_list)), sep = ",", collapse = ",")
+hvg_lvg_all_genes$Stage[is.na(hvg_lvg_all_genes$Stage)] <- stage_list_character
+
+hvg_lvg_all_genes_tidy_dup_stage <- hvg_lvg_all_genes %>%
+  separate_rows(Stage,Tag, convert = T)
+
+#ugh
+#gene_list <- unique(as.vector(hvg_lvg_all_genes_tidy_dup_stage$Gene))
+#hvg_lvg_all_genes_tidy <- data.frame(Gene = character(),
+#                                     Stage = character(),
+#                                     Tag = character())
+
+hvg_lvg_all_genes_tidy_dup_stage_merge <- hvg_lvg_all_genes_tidy_dup_stage %>%
+  mutate(Gene_stage = paste0(Gene,",",Stage))
+#View(head(hvg_lvg_all_genes_tidy_dup_stage_merge))
+dup_logic_vect <- c(duplicated(hvg_lvg_all_genes_tidy_dup_stage_merge$Gene_stage) | duplicated(hvg_lvg_all_genes_tidy_dup_stage_merge$Gene_stage, fromLast = T))
+
+#hmm want one of the duplicates? No seems dropping both.
+#if duplicated and tag == "other"
+hvg_lvg_all_genes_tidy_no_dup <- hvg_lvg_all_genes_tidy_dup_stage_merge[! dup_logic_vect,]
+hvg_lvg_all_genes_dup <- hvg_lvg_all_genes_tidy_dup_stage_merge[ dup_logic_vect,]
+hvg_lvg_all_genes_dup_no_other <- hvg_lvg_all_genes_dup[which(! grepl("Other",hvg_lvg_all_genes_dup$Tag)),]
+
+hvg_lvg_all_genes_tidy <- rbind(hvg_lvg_all_genes_tidy_no_dup,hvg_lvg_all_genes_dup_no_other)
+hvg_lvg_all_genes_tidy <- hvg_lvg_all_genes_tidy[,c(1:3)]
+
+#cleanup:
+rm(hvg_lvg_all_genes_dup,hvg_lvg_all_genes_dup_no_other, hvg_lvg_all_genes_tidy_no_dup,dup_logic_vect,hvg_lvg_all_genes_tidy_dup_stage_merge,hvg_lvg_all_genes_tidy_dup_stage)
+#Thought of a faster way, merge columns, duplicated, remove duplicated columns?
+#eh, it ran , do this if have to remake
+
+#take a bit to run, remove rows marked for death
+#backup <- hvg_lvg_all_genes_tidy
+#hvg_lvg_all_genes_tidy <- hvg_lvg_all_genes_tidy[hvg_lvg_all_genes_tidy$Tag != "Dead",]
+
+#now we can add cns annotations to each gene
+
+h_l_gene_cns <- merge(tair10_cns_assignment_table,hvg_lvg_all_genes_tidy, sort = F, by = "Gene", all = T)
+#hopefully that will work... hmmm maybe should subset so just the cns count.. and rep that
+
+#owee we ready
+#colnames(h_l_gene_cns)
+h_l_gene_cns$CNS_Count <- as.numeric(h_l_gene_cns$CNS_Count)
+class(h_l_gene_cns$CNS_Count)
+cns_density <- h_l_gene_cns[h_l_gene_cns$CNS_Count > 0,] %>%
+  ggplot(aes(y = CNS_Count / Interval_size, x = Tag, fill = Tag, alpha = 0.05)) +
+  geom_violin() +
+  #facet_wrap(~Stage) +
+  ylim(0,0.004) +
+  geom_boxplot() +
+  #geom_dotplot(data = h_l_gene_cns[h_l_gene_cns$CNS_Count > 0 & h_l_gene_cns$Tag != "Other",], binaxis='y', stackdir='center', dotsize=.01, binwidth = 1) +
+  ggtitle("Distribution of CNS associated with genes in TAIR10, comparing HVG, LVG and Others. NORMALIZED FOR GENE LENGTH")
+cns_density
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/violin_tags_ngc.png")
+  plot(cns_density) 
+  dev.off()
+
+write.table(h_l_gene_cns, file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/h_l_gene_cns",sep = "\t", quote = F, row.names = F)
+
+##############################################################
+##Fa_count
+
+h_l_gene_cns$Fa_count <- as.numeric(h_l_gene_cns$Fa_count)
+class(h_l_gene_cns$Fa_count)
+cns_density <- h_l_gene_cns[h_l_gene_cns$Fa_count > 0,] %>%
+  ggplot(aes(y = Fa_count / Interval_size, x = Tag, fill = Tag, alpha = 0.05)) +
+  geom_violin() +
+  #facet_wrap(~Stage) +
+  ylim(0,0.004) +
+  geom_boxplot() +
+  #geom_dotplot(data = h_l_gene_cns[h_l_gene_cns$Fa_count > 0 & h_l_gene_cns$Tag != "Other",], binaxis='y', stackdir='center', dotsize=.01, binwidth = 1) +
+  ggtitle("Distribution of CNS associated with genes in TAIR10, comparing HVG, LVG and Others. NORMALIZED FOR GENE LENGTH")
+cns_density
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/violin_tags_ngc_facount.png")
+  plot(cns_density) 
+  dev.off()
+
+write.table(h_l_gene_cns, file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/h_l_gene_cns_facount.txt",sep = "\t", quote = F, row.names = F)
+
+
+h_l_gene_cns <- h_l_gene_cns %>%
+  mutate(NGC = CNS_Count / Interval_size)
+
+hvg_ngc <- as.vector(h_l_gene_cns[h_l_gene_cns$Tag == "HVG",]$NGC)
+lvg_ngc <- as.vector(h_l_gene_cns[h_l_gene_cns$Tag == "LVG",]$NGC)
+other_ngc <- as.vector(h_l_gene_cns[h_l_gene_cns$Tag == "Other",]$NGC)
+
+?wilcox.test
+wilcox.test(x = lvg_ngc, y = other_ngc)
+
+summary(other_ngc)
+#> summary(hvg_ngc)
+#     Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
+#0.0000000 0.0000000 0.0000000 0.0001198 0.0000000 0.0030151
+#> summary(lvg_ngc)
+#    Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#0.000000 0.000000 0.000000 0.000199 0.000000 0.003766 
+#> summary(other_ngc)
+#     Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
+#0.0000000 0.0000000 0.0000000 0.0001589 0.0000000 0.0158966 
+
+#comparing mean numbers: HVG < other < LVG CNS count per gene length
+
+#what about removing zeros?
+hvg_ngc_nz <- hvg_ngc[hvg_ngc > 0]
+#746 out of 5332 left (0.13991)
+lvg_ngc_nz <- lvg_ngc[lvg_ngc > 0]
+#2581 / 12000 left (0.2150833)
+other_ngc_nz <- other_ngc[other_ngc > 0]
+#57385 out of 317016 (0.1810161)
+
+summary(other_ngc_nz)
+#hvg:
+#0.0008565
+#lvg:
+#0.0009254
+#other:
+#0.0008776
+
+#trend holds
+
+
+
+#hmmm, summary stats? average number of CNS per gene in each tag?
+#violin plots?
+
+```
+#conclusion:
+#low variable genes have more CNS
+
+Now check if HVG / LVG:
+- overrepresented in variable CNS list
+- likely to be variable in a greater number of accessions
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#hmmm over rep, just take unique list and binomial test, probability of overlap
+cns_mi <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/all_missing_uniq.txt", row.names = NULL, header = F)
+cns_mo <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/all_moved_uniq.txt", row.names = NULL, header = F)
+
+cns_mi_vect <- gsub(".*_","",as.vector(cns_mi$V1))
+cns_mo_vect <- gsub(".*_","",as.vector(cns_mo$V1))
+
+#hmmmm by time? across all times?
+#lets do binomial test for each time
+hvg_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/HVG.csv", sep = ",", row.names = NULL, header = T)
+colnames(hvg_table)
+
+lvg_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/noisy_genes/LVG.csv", sep = ",", row.names = NULL, header = T)
+
+hvg_table_colnames <- colnames(hvg_table)
+
+for (i in hvg_table_colnames) {
+  #test
+  #i <- hvg_table_colnames[1]
+  #extract as vector
+  vect <- as.vector(hvg_table[,i])
+  #compute overlap with missing set
+  #tmp <- cns_mi[cns_mi$V1 %in% vect,]
+  ovr_mi <- length(intersect(vect, cns_mi_vect))
+  print(ovr_mi)
+  #toying with number of genes possible.... think all tair10 genes in gff
+  #pbinom(ovr_mi,length(vect),p = nrow(cns_mi)/28775)
+  #?pbinom
+}
+
+```
+
+
+Hypergeometric test
+- probability each pairwise overlap.. hmm how to do across many groups
+/ fishers exact test..
+hmmm I can do pairwise comparisons between each accession.. but how to do overall pattern
+
+- probability of 1500 unique events only when x number of draws from whole gene pool.. hmmm
+
+found package claiming to do it, citation:
+Minghui Wang, Yongzhong Zhao, and Bin Zhang (2015) Efficient Test and Visualization of Multi-Set Intersections. Scientific Reports 5: 16923.
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#install.packages("SuperExactTest")
+library("SuperExactTest")
+
+#wonder if it can handle 30... well 29... hmm maybe just start with 10...
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+#remove Col-0'
+file.names <- file.names[!grepl("5757",file.names)]
+list_of_files <- file.names
+
+accession_list <- gsub(paste0(path.missing,"/*"),'',list_of_files) %>%
+  gsub('_missing.txt','',.)
+
+#list of vectors
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  scan(file = i,what = character())
+})
+
+#test_scan <- scan(file = list_of_files[1], what = character())
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+#View(names(loaded_list_of_files))
+
+(length.gene.sets=sapply(loaded_list_of_files,length))
+
+total=62916
+(num.expcted.overlap=total*do.call(prod,as.list(length.gene.sets/total)))
+#loop to
+loop_to <- min(length.gene.sets)
+(p=sapply(0:loop_to,function(i) dpsets(i, length.gene.sets, n=total)))
+common.genes=intersect(loaded_list_of_files[[1]],
+                       loaded_list_of_files[[2]],
+                       loaded_list_of_files[[3]],
+                       loaded_list_of_files[[4]],
+                       loaded_list_of_files[[5]],
+                       loaded_list_of_files[[6]],
+                       loaded_list_of_files[[7]],
+                       loaded_list_of_files[[8]],
+                       loaded_list_of_files[[9]],
+                       loaded_list_of_files[[10]],
+                       loaded_list_of_files[[11]],
+                       loaded_list_of_files[[12]],
+                       loaded_list_of_files[[13]],
+                       loaded_list_of_files[[14]],
+                       loaded_list_of_files[[15]],
+                       loaded_list_of_files[[16]],
+                       loaded_list_of_files[[17]],
+                       loaded_list_of_files[[18]],
+                       loaded_list_of_files[[19]],
+                       loaded_list_of_files[[20]],
+                       loaded_list_of_files[[21]],
+                       loaded_list_of_files[[22]],
+                       loaded_list_of_files[[23]],
+                       loaded_list_of_files[[24]],
+                       loaded_list_of_files[[25]],
+                       loaded_list_of_files[[26]],
+                       loaded_list_of_files[[27]],
+                       loaded_list_of_files[[28]],
+                       loaded_list_of_files[[29]])
+(num.observed.overlap=length(common.genes))
+dpsets(num.observed.overlap, length.gene.sets, n=total)
+cpsets(num.observed.overlap-1, length.gene.sets, n=total, lower.tail=FALSE)
+```
+
+
+Empirical overlap distribution
+
+randomly subsetting list of things to make line graph comparison:
+
+- for i in 1:1000
+	- get vector of length of missing list
+	- for each of those lengths
+		- generate a list of random numbers (set seed so can repeat)
+		- use these numbers to subset ALL cns table
+		- get into format for the line graph creation code
+	- line graph creation
+	- concatenate line graph numbers to final output
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#get vector of all cns
+all_cns <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/col_0_cns01_hits.txt", header = F, row.names = NULL)
+
+#vector of length of missing/moved lists...
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+list_of_files <- file.names.missing
+#remove Col-0'
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+accession_list <- gsub(paste0(path.missing,"/*"),'',list_of_files) %>%
+  gsub('_missing.txt','',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+  vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+#output skeleton
+line_graph_subset_table <- data.frame(Permutation = numeric(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric())
+
+rm(loaded_list_of_files,accession_list,file.names.missing,list_of_files,path.missing)
+for (permutation in 1:1000) {
+  if ( ! permutation%%100 ) {
+    print(paste0("Running permutation: ",permutation))
+  }
+  loop_list_of_cns_lists <- vector(mode = "list", length = length(vect_lengths))
+  for (i in 1:length(vect_lengths)) {
+    loop_list_of_cns_lists[[i]] <- as.character(all_cns[sample(1:nrow(all_cns),vect_lengths[i], replace = F),])
+    #stores as factors, think will be fine
+    #was not fine, edited, now saves as list of character vectors, no factors
+    #problem was later trying to find unique CNS across the factors in list
+    #probably more efficient to figure out how to do that, but screw it
+  }
+  #line graph creation, subsample these loop_list_of_cns_lists object to see what is average overlap across each number of random combos
+  loop_line_graph_table <- data.frame(Permutation = numeric(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric())
+  for (j in 1:length(vect_lengths)) {
+    #if possible combinations of this size is < 1000, do them all:
+    #print(paste0("Starting combination: ",j))
+    #?choose]
+    sample_space <- choose(length(vect_lengths),j)
+    if (sample_space <= 1000) {
+      #print(paste0("Sample space less than 1000: ",sample_space))
+      #for each possible combination, calculate overlap, add to numeric vector to take mean and stdev
+      sample_space_matrix <- combn(length(vect_lengths),j)
+      loop_overlaps <- numeric()
+      for (k in 1:sample_space) {
+        #subset the loop_list_of_cns_lists to this specific unique combination
+        #calculate overlap between these loop_perm_list lists, get to
+        overlap_length <- length(unique(unlist(loop_list_of_cns_lists[sample_space_matrix[,k]])))
+        loop_overlaps <- c(loop_overlaps,overlap_length)
+        rm(overlap_length)
+      }
+      mean_cns <- mean(loop_overlaps)
+      std_cns <- sd(loop_overlaps)
+      loop_line_graph_table <- rbind(loop_line_graph_table, c(permutation,j,mean_cns,std_cns))
+      #rm(mean_cns,std_cns)
+    } else {
+     #print(paste0("sample space greater than 1000: ", sample_space))
+      loop_overlaps <- numeric()
+        for (gtt_sub in 1:1000) {
+          #if ( ! gtt_sub%%100 ) {
+          #  print(paste0("Random combn: ",gtt_sub))
+          #}
+          #subset the loop_list_of_cns_lists to a random combination
+          #calculate overlap between these loop_perm_list lists, get to
+          #random combination from all possible
+          #this might be taking way too long...
+          overlap_length <- length(unique(unlist(loop_list_of_cns_lists[sample(1:length(vect_lengths),j)])))
+          loop_overlaps <- c(loop_overlaps,overlap_length)
+          #rm(overlap_length)
+          #stop()
+        }
+        mean_cns <- mean(loop_overlaps)
+        std_cns <- sd(loop_overlaps)
+        loop_line_graph_table <- rbind(loop_line_graph_table, c(permutation,j,mean_cns,std_cns))
+        #rm(mean_cns,std_cns,loop_overlaps)
+    }
+  }
+  colnames(loop_line_graph_table) <- c("Permutation", "Accessions", "Mean", "Stdev")
+  line_graph_subset_table <- rbind(line_graph_subset_table,loop_line_graph_table)
+}
+
+write.table(line_graph_subset_table, file = "/mnt/research/edgerpat_lab/AlanY/01_athal_cns/athal_line_graph_subset_table.txt",
+                quote = F, col.names = T, sep = "\t")
+
+```
+
+
+load in permutations,
+plot against the actual data
+
+hmmm just make missing and moved perm graphs first
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+suffix <- "_missing.txt"
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern=paste0("SRR.*",suffix), full.names = T)
+list_of_files <- file.names.missing
+path <- path.missing
+
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+  vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+
+#output skeleton
+loop_line_graph_table <- data.frame(Type = character(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric(),
+                                    stringsAsFactors = F)
+type <- "Missing"
+
+rm(accession_list,file.names.missing,list_of_files,path.missing)
+
+for (j in 1:length(vect_lengths)) {
+  #if possible combinations of this size is < 1000, do them all:
+  #print(paste0("Starting combination: ",j))
+  #?choose
+  sample_space <- choose(length(vect_lengths),j)
+  if (sample_space <= 1000) {
+    #print(paste0("Sample space less than 1000: ",sample_space))
+    #for each possible combination, calculate overlap, add to numeric vector to take mean and stdev
+    sample_space_matrix <- combn(length(vect_lengths),j)
+    loop_overlaps <- numeric()
+    for (k in 1:sample_space) {
+      #subset the loop_list_of_cns_lists to this specific unique combination
+      #calculate overlap between these loop_perm_list lists, get to
+      overlap_length <- length(unique(unlist(loaded_list_of_files[sample_space_matrix[,k]])))
+      loop_overlaps <- c(loop_overlaps,overlap_length)
+      rm(overlap_length)
+    }
+    mean_cns <- mean(loop_overlaps)
+    std_cns <- sd(loop_overlaps)
+    loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+    rm(mean_cns,std_cns)
+  } else {
+   #print(paste0("sample space greater than 1000: ", sample_space))
+    loop_overlaps <- numeric()
+      for (gtt_sub in 1:1000) {
+        #if ( ! gtt_sub%%100 ) {
+        #  print(paste0("Random combn: ",gtt_sub))
+        #}
+        #subset the loop_list_of_cns_lists to a random combination
+        #calculate overlap between these loop_perm_list lists, get to
+        #random combination from all possible
+        #this might be taking way too long...
+        overlap_length <- length(unique(unlist(loaded_list_of_files[sample(1:length(vect_lengths),j)])))
+        loop_overlaps <- c(loop_overlaps,overlap_length)
+        #rm(overlap_length)
+        #stop()
+      }
+      mean_cns <- mean(loop_overlaps)
+      std_cns <- sd(loop_overlaps)
+      loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+      #rm(mean_cns,std_cns,loop_overlaps)
+  }
+}
+colnames(loop_line_graph_table) <- c("Type", "Accessions", "Mean", "Stdev")
+
+write.table(loop_line_graph_table, file = paste0(path,"cns_subsampling",suffix), quote = F, row.names = F, sep = "\t")
+
+```
+
+moved permutation table:
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+suffix <- "_moved.txt"
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.moved <- dir(path.moved, pattern=paste0("SRR.*",suffix), full.names = T)
+list_of_files <- file.names.moved
+path <- path.moved
+
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+  vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+
+#output skeleton
+loop_line_graph_table <- data.frame(Type = character(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric(),
+                                    stringsAsFactors = F)
+type <- "Missing"
+
+rm(accession_list,file.names.missing,list_of_files,path.missing)
+
+for (j in 1:length(vect_lengths)) {
+  #if possible combinations of this size is < 1000, do them all:
+  #print(paste0("Starting combination: ",j))
+  #?choose
+  sample_space <- choose(length(vect_lengths),j)
+  if (sample_space <= 1000) {
+    #print(paste0("Sample space less than 1000: ",sample_space))
+    #for each possible combination, calculate overlap, add to numeric vector to take mean and stdev
+    sample_space_matrix <- combn(length(vect_lengths),j)
+    loop_overlaps <- numeric()
+    for (k in 1:sample_space) {
+      #subset the loop_list_of_cns_lists to this specific unique combination
+      #calculate overlap between these loop_perm_list lists, get to
+      overlap_length <- length(unique(unlist(loaded_list_of_files[sample_space_matrix[,k]])))
+      loop_overlaps <- c(loop_overlaps,overlap_length)
+      rm(overlap_length)
+    }
+    mean_cns <- mean(loop_overlaps)
+    std_cns <- sd(loop_overlaps)
+    loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+    rm(mean_cns,std_cns)
+  } else {
+   #print(paste0("sample space greater than 1000: ", sample_space))
+    loop_overlaps <- numeric()
+      for (gtt_sub in 1:1000) {
+        #if ( ! gtt_sub%%100 ) {
+        #  print(paste0("Random combn: ",gtt_sub))
+        #}
+        #subset the loop_list_of_cns_lists to a random combination
+        #calculate overlap between these loop_perm_list lists, get to
+        #random combination from all possible
+        #this might be taking way too long...
+        overlap_length <- length(unique(unlist(loaded_list_of_files[sample(1:length(vect_lengths),j)])))
+        loop_overlaps <- c(loop_overlaps,overlap_length)
+        #rm(overlap_length)
+        #stop()
+      }
+      mean_cns <- mean(loop_overlaps)
+      std_cns <- sd(loop_overlaps)
+      loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+      #rm(mean_cns,std_cns,loop_overlaps)
+  }
+}
+colnames(loop_line_graph_table) <- c("Type", "Accessions", "Mean", "Stdev")
+
+write.table(loop_line_graph_table, file = paste0(path,"cns_subsampling",suffix), quote = F, row.names = F, sep = "\t")
+
+```
+
+
+noww we can load everything in and plot together
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+#detach("package:plyr",unload = T)
+
+cns_missing_sub <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_subsampling_missing.txt", header = T, row.names = NULL,sep = "\t")
+
+cns_moved_sub <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/cns_subsampling_moved.txt", header = T, row.names = NULL,sep = "\t")
+
+gene_var_sub <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/02_GO/01_data/gene_calls/cns_subsampling_var.txt", header = T, row.names = NULL,sep = "\t")
+
+#load in permutations
+cns_missing_perm <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/athal_line_graph_subset_table_missing.txt", header = T, row.names = NULL,sep = "\t")
+cns_moved_perm <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/athal_line_graph_subset_table_moved.txt", header = T, row.names = NULL,sep = "\t")
+
+#summarise
+cns_missing_perm <- cns_missing_perm %>%
+  group_by(Accessions)
+cns_missing_perm_avg <- cns_missing_perm %>%
+  summarise(Perm_mean = mean(Mean),
+            Perm_stdev = sd(Mean))
+#add Type to perm table
+Type <- rep("Missing_perm",nrow(cns_missing_perm_avg))
+cns_missing_perm_avg <- cbind(cns_missing_perm_avg,Type)
+
+#summarise
+cns_moved_perm <- cbind(cns_moved_perm,Type)
+cns_moved_perm <- cns_moved_perm %>%
+  group_by(Accessions)
+cns_moved_perm_avg <- cns_moved_perm %>%
+  summarise(Perm_mean = mean(Mean),
+            Perm_stdev = sd(Mean))
+#add Type to perm table
+Type <- rep("Moved_perm",nrow(cns_moved_perm_avg))
+cns_moved_perm_avg <- cbind(cns_moved_perm_avg,Type)
+
+#combine permuation and data
+#change colnames
+colnames(gene_var_sub) <- c("Type", "Accessions", "Mean","Stdev")
+colnames(cns_missing_perm_avg) <- c("Accessions","Mean","Stdev","Type")
+cns_missing <- rbind(cns_missing_perm_avg,cns_missing_sub,gene_var_sub)
+colnames(cns_moved_perm_avg) <- c("Accessions","Mean","Stdev","Type")
+cns_moved <- rbind(cns_moved_perm_avg,cns_moved_sub,gene_var_sub)
+
+cns_missing <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_missing_sub_and_perm.txt",row.names = NULL,header = T, sep = "\t")
+
+cns_missing$Type <- gsub("Missing","PAV",cns_missing$Type)
+cns_missing$Type <- gsub("perm","permutation",cns_missing$Type)
+
+cns_mi_line_graph <- cns_missing %>%
+  ggplot(aes(x = Accessions, y = Mean, colour = Type)) +
+  scale_color_manual(values = c("red", "blue", "green")) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = Mean-Stdev, ymax=Mean+Stdev),position=position_dodge(0.05)) +
+  ylim(0,5000) +
+  ggtitle(label = "PAV CNS subsampling")
+cns_mi_line_graph
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_pav_perm_sub.pdf", width = 12, height = 6)
+  plot(cns_mi_line_graph)
+  dev.off()
+
+  
+cns_moved$Type <- gsub("Moved","PosV",cns_moved$Type)
+#cns_moved <- cns_moved[which(cns_moved$Type != "Gene_var"),]
+
+cns_moved_line_graph <- cns_moved %>%
+  ggplot(aes(x = Accessions, y = Mean, colour = Type)) +
+  scale_color_manual(values = c("red", "blue", "green")) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = Mean-Stdev, ymax=Mean+Stdev),position=position_dodge(0.05)) +
+  ylim(0,25000) +
+  ggtitle(label = "PosV CNS vs. Gene PAV subsampling")
+cns_moved_line_graph
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_posv_gene_var_perm_sub.pdf", width = 12, height = 6)
+  plot(cns_moved_line_graph)
+  dev.off()
+  
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_posv_perm_sub.pdf", width = 12, height = 6)
+#  plot(cns_moved_line_graph)
+#  dev.off()
+
+#write.table(cns_missing,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_missing_sub_and_perm.txt",row.names = F, quote = F,sep = "\t")
+
+#png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_perm_sub_line_graph.png")
+#  plot(cns_missing_line_graph)
+#  dev.off()
+  
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/cns_perm_sub_line_moved_gene_graph.png", height = 480, width = 853, res = 100)
+  plot(cns_moved_line_graph)
+  dev.off()
+  
+#plot everything together
+mi_mo_gene_sub <- rbind(cns_missing_sub,cns_moved_sub,gene_var_sub, cns_missing_perm_avg, cns_moved_perm_avg)
+mi_mo_gene_sub <- rbind(cns_missing_sub,cns_moved_sub,gene_var_sub)
+
+mi_mo_gene_sub$Type <- gsub("Missing","PAV_CNS",mi_mo_gene_sub$Type)
+mi_mo_gene_sub$Type <- gsub("Moved","PosV_CNS",mi_mo_gene_sub$Type)
+#mi_mo_gene_sub$Type <- gsub("Missing_perm","PAV_CNS_expected",mi_mo_gene_sub$Type)
+mi_mo_gene_sub$Type <- gsub("Gene_var","PAV_Gene",mi_mo_gene_sub$Type)
+#mi_mo_gene_sub$Type <- gsub("Moved_perm","PosV_CNS_expected",mi_mo_gene_sub$Type)
+
+
+#change some formatting
+colnames(mi_mo_gene_sub)[3] <- "Mean Unique Sequences"
+colnames(mi_mo_gene_sub)[2] <- "Ecotypes"
+
+#order legend
+mi_mo_gene_sub$Type <- factor(mi_mo_gene_sub$Type,levels = c("PAV_Gene","PosV_CNS","PAV_CNS"))
+
+write.table(mi_mo_gene_sub,file = "/Users/alanyocca/Documents/01_athal_cns/mi_mo_gene_sub.txt",sep = "\t",row.names = F,quote = F)
+```
+
+Graphing subsampling plots, above code created the file we needed
+```{r}
+library(tidyverse)
+library(ggplot2)
+
+
+mi_mo_gene_sub <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/mi_mo_gene_sub.txt",sep = "\t",row.names = NULL, header = T)
+
+colnames(mi_mo_gene_sub)[3] <- "Mean Unique Sequences"
+
+all_line_graph <- mi_mo_gene_sub %>%
+  ggplot(aes(x = Ecotypes, y = `Mean Unique Sequences`, colour = Type)) +
+  scale_color_manual(values = c("#F8766D", "#00BA38", "#619CFF")) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = `Mean Unique Sequences` -Stdev, ymax=`Mean Unique Sequences`+Stdev),position=position_dodge(0.05)) +
+  ylim(0,6000) +
+  xlim(0,30) +
+  ggtitle(label = "Subsampling Across Ecotypes") +
+  theme_minimal()
+all_line_graph
+#
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/all_subsample_graph.png", units = "in", height = 4.18, width = 7.42, res = 600)
+  plot(all_line_graph)
+  dev.off()
+
+#lets only do PAV_Gene, then layer PosV_CNS
+library(scales)
+show_col(hue_pal()(3))
+#red: #F8766D   PAV_Gene
+#green: #00BA38 PosV_CNS
+#blue: #619CFF  PAV_CNS
+
+gene_line_graph <- mi_mo_gene_sub[mi_mo_gene_sub$Type == "PAV_Gene",] %>%
+  ggplot(aes(x = Ecotypes, y = `Mean Unique Sequences`, colour = Type)) +
+  scale_color_manual(values = c("#F8766D")) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = `Mean Unique Sequences` -Stdev, ymax=`Mean Unique Sequences`+Stdev),position=position_dodge(0.05)) +
+  ylim(0,6000) +
+  xlim(0,30) +
+  ggtitle(label = "Subsampling Across Ecotypes") +
+  theme_minimal()
+gene_line_graph
+#
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/all_subsample_graph_1.png", units = "in", height = 4.18, width = 7.42, res = 600)
+  plot(gene_line_graph)
+  dev.off()
+
+gene_posv_line_graph <- mi_mo_gene_sub[mi_mo_gene_sub$Type != "PAV_CNS" ,] %>%
+  ggplot(aes(x = Ecotypes, y = `Mean Unique Sequences`, colour = Type)) +
+  scale_color_manual(values = c("#F8766D","#00BA38")) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = `Mean Unique Sequences` -Stdev, ymax=`Mean Unique Sequences`+Stdev),position=position_dodge(0.05)) +
+  ylim(0,6000) +
+  xlim(0,30) +
+  ggtitle(label = "Subsampling Across Ecotypes") +
+  theme_minimal()
+gene_posv_line_graph
+#
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/all_subsample_graph_2.png", units = "in", height = 4.18, width = 7.42, res = 600)
+  plot(gene_posv_line_graph)
+  dev.off()
+
+
+
+
+
+```
+
+line graph for gene PAV, might take a while to create but go for it
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+suffix <- "_var.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/02_GO/01_data/gene_calls/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+#also remove one problem accession, see if it cleans stuff up
+list_of_files <- list_of_files[! grepl("SRR1946036",list_of_files)]
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+  vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+
+#output skeleton
+loop_line_graph_table <- data.frame(Type = character(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric(),
+                                    stringsAsFactors = F)
+type <- "Gene_var"
+
+#rm(accession_list,list_of_files)
+
+for (j in 1:length(vect_lengths)) {
+  print(paste0("Working on accession: ",j))
+  #if possible combinations of this size is < 1000, do them all:
+  #print(paste0("Starting combination: ",j))
+  #?choose
+  sample_space <- choose(length(vect_lengths),j)
+  if (sample_space <= 1000) {
+    #print(paste0("Sample space less than 1000: ",sample_space))
+    #for each possible combination, calculate overlap, add to numeric vector to take mean and stdev
+    sample_space_matrix <- combn(length(vect_lengths),j)
+    loop_overlaps <- numeric()
+    for (k in 1:sample_space) {
+      #subset the loop_list_of_cns_lists to this specific unique combination
+      #calculate overlap between these loop_perm_list lists, get to
+      overlap_length <- length(unique(unlist(loaded_list_of_files[sample_space_matrix[,k]])))
+      loop_overlaps <- c(loop_overlaps,overlap_length)
+      rm(overlap_length)
+    }
+    mean_cns <- mean(loop_overlaps)
+    std_cns <- sd(loop_overlaps)
+    loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+    rm(mean_cns,std_cns)
+  } else {
+   #print(paste0("sample space greater than 1000: ", sample_space))
+    loop_overlaps <- numeric()
+      for (gtt_sub in 1:1000) {
+        #if ( ! gtt_sub%%100 ) {
+        #  print(paste0("Random combn: ",gtt_sub))
+        #}
+        #subset the loop_list_of_cns_lists to a random combination
+        #calculate overlap between these loop_perm_list lists, get to
+        #random combination from all possible
+        #this might be taking way too long...
+        overlap_length <- length(unique(unlist(loaded_list_of_files[sample(1:length(vect_lengths),j)])))
+        loop_overlaps <- c(loop_overlaps,overlap_length)
+        #rm(overlap_length)
+        #stop()
+      }
+      mean_cns <- mean(loop_overlaps)
+      std_cns <- sd(loop_overlaps)
+      loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+      #rm(mean_cns,std_cns,loop_overlaps)
+  }
+}
+colnames(loop_line_graph_table) <- c("Type", "Accessions", "Mean", "Stdev")
+
+write.table(loop_line_graph_table, file = paste0(path,"cns_subsampling",suffix), quote = F, row.names = F, sep = "\t")
+```
+
+
+
+
+line graph of the genes that CNS moved to:
+seems random
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+suffix <- "_mx_moved_closest_at_only.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/02_GO/01_data/closest/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+
+#remove Col-0
+list_of_files <- list_of_files[! grepl("5757",list_of_files)]
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+  vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+
+#output skeleton
+loop_line_graph_table <- data.frame(Type = character(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric(),
+                                    stringsAsFactors = F)
+type <- "Moved_new"
+
+rm(accession_list,list_of_files)
+
+for (j in 1:length(vect_lengths)) {
+  #if possible combinations of this size is < 1000, do them all:
+  #print(paste0("Starting combination: ",j))
+  #?choose
+  sample_space <- choose(length(vect_lengths),j)
+  if (sample_space <= 1000) {
+    #print(paste0("Sample space less than 1000: ",sample_space))
+    #for each possible combination, calculate overlap, add to numeric vector to take mean and stdev
+    sample_space_matrix <- combn(length(vect_lengths),j)
+    loop_overlaps <- numeric()
+    for (k in 1:sample_space) {
+      #subset the loop_list_of_cns_lists to this specific unique combination
+      #calculate overlap between these loop_perm_list lists, get to
+      overlap_length <- length(unique(unlist(loaded_list_of_files[sample_space_matrix[,k]])))
+      loop_overlaps <- c(loop_overlaps,overlap_length)
+      rm(overlap_length)
+    }
+    mean_cns <- mean(loop_overlaps)
+    std_cns <- sd(loop_overlaps)
+    loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+    rm(mean_cns,std_cns)
+  } else {
+   #print(paste0("sample space greater than 1000: ", sample_space))
+    loop_overlaps <- numeric()
+      for (gtt_sub in 1:1000) {
+        #if ( ! gtt_sub%%100 ) {
+        #  print(paste0("Random combn: ",gtt_sub))
+        #}
+        #subset the loop_list_of_cns_lists to a random combination
+        #calculate overlap between these loop_perm_list lists, get to
+        #random combination from all possible
+        #this might be taking way too long...
+        overlap_length <- length(unique(unlist(loaded_list_of_files[sample(1:length(vect_lengths),j)])))
+        loop_overlaps <- c(loop_overlaps,overlap_length)
+        #rm(overlap_length)
+        #stop()
+      }
+      mean_cns <- mean(loop_overlaps)
+      std_cns <- sd(loop_overlaps)
+      loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+      #rm(mean_cns,std_cns,loop_overlaps)
+  }
+}
+colnames(loop_line_graph_table) <- c("Type", "Accessions", "Mean", "Stdev")
+
+write.table(loop_line_graph_table, file = paste0(path,"cns_subsampling",suffix), quote = F, row.names = F, sep = "\t")
+
+suffix <- "_mx_moved_closest_at_only.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/02_GO/01_data/closest/"
+loop_line_graph_table <- read.table(file = paste0(path,"cns_subsampling",suffix), row.names = NULL, sep = "\t", header = T)
+
+mo_to_graph <- loop_line_graph_table %>%
+  ggplot(aes(x = Accessions,y = Mean)) +
+  geom_line()
+mo_to_graph
+
+#about random
+```
+
+
+
+subsampling ragoo genomes, might have to outsource this? no we found fast way to do it right? hmm calculating sample space is most computationally intensive.. that should be quick though...
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+suffix <- "_ragoo_nc_missing.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/02_ragoo/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+viigf_list <- dir("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/",pattern = "SRR.*",full.names = T)
+##remove Col-0
+viigf_list <- viigf_list[! grepl("5757",viigf_list)]
+##also remove one problem accession, see if it cleans stuff up
+#list_of_files <- list_of_files[! grepl("SRR1946036",list_of_files)]
+
+#add viigf and ragoo list:
+list_of_files <- c(list_of_files,viigf_list)
+suffix <- "_ragoo_viigf.txt"
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+    vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+
+#remove any accession with > 2k missing CNS
+list_subset = which(vect_lengths < 2000)
+loaded_list_of_files = loaded_list_of_files[list_subset]
+
+#remake vect_lengths
+vect_lengths <- c()
+for (i in 1:length(loaded_list_of_files)) {
+    vect_lengths <- c(vect_lengths,nrow(loaded_list_of_files[[i]]))
+}
+
+#hmm combine ragoo and mine into subsampling? will probs make it messy.. o whale might as well try
+
+#output skeleton
+loop_line_graph_table <- data.frame(Type = character(),
+                                      Accessions = numeric(),
+                                      Mean = numeric(),
+                                      Stdev = numeric(),
+                                    stringsAsFactors = F)
+type <- "Ragoo_cns_missing"
+
+#rm(accession_list,list_of_files)
+
+for (j in 1:length(vect_lengths)) {
+  print(paste0("Working on accession: ",j))
+  #if possible combinations of this size is < 1000, do them all:
+  #print(paste0("Starting combination: ",j))
+  #?choose
+  sample_space <- choose(length(vect_lengths),j)
+  if (sample_space <= 1000) {
+    #print(paste0("Sample space less than 1000: ",sample_space))
+    #for each possible combination, calculate overlap, add to numeric vector to take mean and stdev
+    sample_space_matrix <- combn(length(vect_lengths),j)
+    loop_overlaps <- numeric()
+    for (k in 1:sample_space) {
+      #subset the loop_list_of_cns_lists to this specific unique combination
+      #calculate overlap between these loop_perm_list lists, get to
+      overlap_length <- length(unique(unlist(loaded_list_of_files[sample_space_matrix[,k]])))
+      loop_overlaps <- c(loop_overlaps,overlap_length)
+      rm(overlap_length)
+    }
+    mean_cns <- mean(loop_overlaps)
+    std_cns <- sd(loop_overlaps)
+    loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+    rm(mean_cns,std_cns)
+  } else {
+   #print(paste0("sample space greater than 1000: ", sample_space))
+    loop_overlaps <- numeric()
+      for (gtt_sub in 1:1000) {
+        #if ( ! gtt_sub%%100 ) {
+        #  print(paste0("Random combn: ",gtt_sub))
+        #}
+        #subset the loop_list_of_cns_lists to a random combination
+        #calculate overlap between these loop_perm_list lists, get to
+        #random combination from all possible
+        #this might be taking way too long...
+        overlap_length <- length(unique(unlist(loaded_list_of_files[sample(1:length(vect_lengths),j)])))
+        loop_overlaps <- c(loop_overlaps,overlap_length)
+        #rm(overlap_length)
+        #stop()
+      }
+      mean_cns <- mean(loop_overlaps)
+      std_cns <- sd(loop_overlaps)
+      loop_line_graph_table <- rbind(loop_line_graph_table, c(type,j,mean_cns,std_cns), stringsAsFactors = F)
+      #rm(mean_cns,std_cns,loop_overlaps)
+  }
+}
+colnames(loop_line_graph_table) <- c("Type", "Accessions", "Mean", "Stdev")
+
+write.table(loop_line_graph_table, file = paste0(path,"cns_subsampling",suffix), quote = F, row.names = F, sep = "\t")
+
+loop_line_graph_table <- read.table(file = paste0(path,"cns_subsampling",suffix),row.names = NULL,col.names = T, sep = "\t")
+
+#graph
+#change NA to zero
+loop_line_graph_table[is.na(loop_line_graph_table)] <- 0
+loop_line_graph_table[,"Mean"] <- as.numeric(loop_line_graph_table[,"Mean"])
+loop_line_graph_table[,"Stdev"] <- as.numeric(loop_line_graph_table[,"Stdev"])
+loop_line_graph_table[,"Accessions"] <- as.numeric(loop_line_graph_table[,"Accessions"])
+line_graph <- loop_line_graph_table %>%
+  ggplot(aes(x= Accessions, y = Mean)) +
+  geom_line() 
+  #geom_errorbar(aes(ymin = Mean-Stdev, ymax=Mean+Stdev),position=position_dodge(0.05))
+line_graph
+
+#hmm overlap with my genomes
+viigf_cns_mi_subsampling <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/cns_subsampling_missing.txt", sep = "\t",header = T,row.names = NULL)
+
+viigf_cns_mi_subsampling$Type <- rep("Viigf_PAV",nrow(viigf_cns_mi_subsampling))
+combined_df <- rbind(viigf_cns_mi_subsampling,loop_line_graph_table)
+
+line_graph <- combined_df %>%
+  ggplot(aes(x= Accessions, y = Mean, colour = Type)) +
+  geom_line() +
+  ggtitle("Random subsampling across 29 genomes assembled here\n and 95 RAGOO assembled genomes")
+  #geom_errorbar(aes(ymin = Mean-Stdev, ymax=Mean+Stdev),position=position_dodge(0.05))
+line_graph
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/ragoo_viigf_mi_subsampling.pdf", width = 12, height = 6)
+  plot(line_graph)
+  dev.off()
+
+ragoo_filt_mi <- names(loaded_list_of_files)
+
+
+write.table(ragoo_filt_mi,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/02_ragoo/ragoo_filt_mi.txt",sep = "\n",row.names = F,quote = F,col.names = F)
+```
+
+CNS length distribution
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+length_df <- read.table( "/Users/alanyocca/Documents/01_athal_cns/CNS_Brassicaceae_at_gene_nodups_mi_ldv.txt", row.names = NULL)
+colnames(length_df) <- "Length"
+med_len <- median(length_df$Length)
+ldv_graph <- length_df %>%
+  ggplot(aes(x=Length)) +
+  geom_density() +
+  xlim(0,250) +
+  geom_vline(xintercept = median(length_df$Length)) +
+  geom_text(aes(x=median(length_df$Length), label=paste0("Median length = ",median(length_df$Length)), y=0.05))
+ldv_graph
+#
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/CNS_Brassicaceae_at_gene_nodups_mi_ldv.png", units = "in", res = 400, width = 11, height = 8.5)
+  plot(ldv_graph)
+  dev.off()
+
+```
+
+
+screwing around
+```{r}
+library(tidyverse)
+library(ggplot2)
+
+df <- data.frame(FT = c(63,110.5,86.75,63.75,71.25,80.25,58.5,59.75,65.75,81.25,65.75,77.5,74,69.75))
+
+plot <- df %>%
+  ggplot(aes(x = FT)) +
+  geom_histogram()
+plot
+```
+
+
+
+
+
+
+
+
+
+
+

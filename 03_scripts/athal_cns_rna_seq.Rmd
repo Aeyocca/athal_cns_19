@@ -1,0 +1,1352 @@
+---
+title: "athal_cns_rna_seq"
+output: html_document
+---
+
+#ayyyy attempting to follow tutorials here:
+#https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html
+
+#load in the matrix output from featureCount and manipulate into DESeq2 format
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+#library(ggplot2)
+
+suffix <- "_fC_mat.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,header = T,row.names = NULL,skip = 1,sep = "\t")
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+accession_list
+#combine the bio reps? no wait until manipulate correctly
+first_rep <- loaded_list_of_files[[1]]
+second_rep <- loaded_list_of_files[[2]]
+first_rep_sub <- first_rep[,c(1,7)]
+second_rep_sub <- second_rep[,c(1,7)]
+merged_df <- merge(first_rep_sub,second_rep_sub)
+colnames(merged_df) <- c("gene_id",names(loaded_list_of_files)[1]
+                                  ,names(loaded_list_of_files)[2])
+#just run through this one for now
+
+#pick out the highest expressed unique id
+#aa <- a[order(a$id, -abs(a$value) ), ] #sort by id and reverse of abs(value)
+#aa[ !duplicated(aa$id), ]              # take the first row within each id
+#merged_df
+#fuck should do this before merging??? naw do highest pair
+#cut underscores in gene names...
+merged_df$gene_id <- gsub("_[0-9]+$","",merged_df$gene_id)
+merged_df$sum <- (merged_df[,2] + merged_df[3])
+merged_uni_sort <- merged_df[order(merged_df$gene_id, merged_df$sum),]
+merged_uni_df <- merged_uni_sort[ ! duplicated(merged_uni_sort$gene_id),]
+merged_uni_df <- merged_uni_df[,c(1:3)]
+#nice now can merge with tair
+tair_br1 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br1_fC_mat.txt", header = T,row.names = NULL,skip = 1,sep = "\t")
+tair_br2 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br2_fC_mat.txt", header = T,row.names = NULL,skip = 1,sep = "\t")
+
+tair_br1_sub <- tair_br1[,c(1,7)]
+tair_br2_sub <- tair_br2[,c(1,7)]
+
+tair_merge <- merge(tair_br1_sub,tair_br2_sub)
+colnames(tair_merge) <- c("gene_id","TAIR10_ref_br1","TAIR10_ref_br2")
+
+#combine
+tair_eco_df <- merge(tair_merge,merged_uni_df,by = "gene_id")
+#genes as rownames
+rownames(tair_eco_df) <- tair_eco_df$gene_id
+tair_eco_df <- tair_eco_df[,-1]
+#ugh, I thought duplicate column names was how we did it... R not liking that though...
+
+#think its the colData object that will designate things for me
+#taking a crack at coldata
+coldata <- data.frame(ecotype = factor(x = c(rep("TAIR10_ref",2), rep(gsub("_br[12]","",names(loaded_list_of_files)[1]),2)), levels = c("TAIR10_ref", gsub("_br[12]","",names(loaded_list_of_files)[1]))))
+#levels(coldata$ecotype)
+#get colnames right
+rownames(coldata) <- colnames(tair_eco_df)
+#
+
+```
+
+#above should give us tair_eco_df, and coldata
+
+```{r}
+#BiocManager::install("DESeq2")
+library("DESeq2")
+
+dds <- DESeqDataSetFromMatrix(countData = tair_eco_df,
+                              colData = coldata,
+                              design = ~ ecotype)
+dds <- DESeq(dds)
+resultsNames(dds)
+res <- results(dds, name = "ecotype_SRR1945861_bwa_alt_3_masked_vs_TAIR10_ref")
+res <- lfcShrink(dds, coef = "ecotype_SRR1945861_bwa_alt_3_masked_vs_TAIR10_ref",type = "apeglm")
+resOrdered <- res[order(res$pvalue),]
+resSig <- subset(resOrdered, padj < 0.05)
+#
+
+
+
+```
+
+
+#going to just check absolute expression ugh no needs to be normalized
+#haha stringtie normalized them for me
+#fuck it do read count comps?
+#just for one ecotype to check
+
+depends on first code block for merged_uni_df
+```{r}
+library(tidyverse)
+
+avg_df <- merged_uni_df %>%
+  mutate(Average = (SRR1945861_bwa_alt_3_masked_br1 + SRR1945861_bwa_alt_3_masked_br2)/2)
+
+pav_list <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/SRR1945861_bwa_alt_3_masked_missing.txt",what = character())
+posv_list <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/SRR1945861_bwa_alt_3_masked_moved.txt",what = character())
+cns_gene <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/col_0_cns01_hits.txt",what = character())
+
+pav_list <- gsub("[0-9]*_","",pav_list)
+posv_list <- gsub("[0-9]*_","",posv_list)
+cns_gene <- gsub("[0-9]*_","",cns_gene)
+
+avg_tag_df <- avg_df %>%
+  mutate(Tag = ifelse(gene_id %in% pav_list, "PAV",
+                      ifelse(gene_id %in% posv_list, "PosV", 
+                             ifelse(gene_id %in% cns_gene, "CNS_Gene", "No_CNS"))))
+
+test_graph <- avg_tag_df %>% 
+  ggplot(aes(x = Tag, y = Average)) +
+  geom_violin() +
+  ylim(0,1000) +
+  geom_boxplot(aes(alpha = 0.1))
+test_graph
+#
+```
+
+depends on first code block for tair_eco_df
+- correlate expression between homologs
+```{r}
+#library(tidyverse)
+library(plyr)
+
+#get gene_id back
+tair_eco_df$gene_id <- rownames(tair_eco_df)
+avg_df <- tair_eco_df %>%
+  mutate(Eco_avg = (SRR1945861_bwa_alt_3_masked_br1 + SRR1945861_bwa_alt_3_masked_br2)/2) %>% 
+  mutate(TAIR_avg = (TAIR10_ref_br1 + TAIR10_ref_br2)/2)
+
+pav_list <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/SRR1945861_bwa_alt_3_masked_missing.txt",what = character())
+posv_list <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/SRR1945861_bwa_alt_3_masked_moved.txt",what = character())
+cns_gene <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/col_0_cns01_hits.txt",what = character())
+
+pav_list <- gsub("[0-9]*_","",pav_list)
+posv_list <- gsub("[0-9]*_","",posv_list)
+cns_gene <- gsub("[0-9]*_","",cns_gene)
+
+avg_tag_df <- avg_df %>%
+  mutate(Tag = ifelse(gene_id %in% pav_list, "PAV",
+                      ifelse(gene_id %in% posv_list, "PosV", 
+                             ifelse(gene_id %in% cns_gene, "CNS_Gene", "No_CNS"))))
+
+#run regression on each Tag separately
+regression=function(df){
+        #setting the regression function. 
+        reg_fun<-lm(formula=df$Eco_avg~df$TAIR_avg) #regression function
+        #getting the slope, intercept, R square and adjusted R squared of 
+        #the regression function (with 3 decimals).
+        slope<-round(coef(reg_fun)[2],3)  
+        intercept<-round(coef(reg_fun)[1],3) 
+        R2<-round(as.numeric(summary(reg_fun)[8]),3)
+        R2.Adj<-round(as.numeric(summary(reg_fun)[9]),3)
+        c(slope,intercept,R2,R2.Adj)
+}
+
+regressions_data <-ddply(avg_tag_df,"Tag",regression)
+colnames(regressions_data)<-c ("Tag","slope","intercept","R2","R2.Adj")
+
+#see if regression changes when removing zeros
+regressions_data_no_zero <-ddply(avg_tag_df[which(avg_tag_df$TAIR_avg > 0 
+                                         & avg_tag_df$Eco_avg >0),],"Tag",regression)
+colnames(regressions_data_no_zero )<-c ("Tag","slope","intercept","R2","R2.Adj")
+#hot damn, if you remove gene pairs where one is not expressed, expression correlation for no_cns shoots above cns_gene
+
+exp_corr <- avg_tag_df %>% 
+  ggplot(aes(x=Eco_avg,y=TAIR_avg, colour = Tag)) +
+  geom_point(aes(alpha = 0.1)) +
+  xlim(0,1000) +
+  ylim(0,1000) +
+  facet_wrap(~ Tag) +
+  geom_smooth(method='lm') +
+  geom_label(data=regressions_data, size = 3, inherit.aes=FALSE, aes(x = 600, y = 50,
+label=paste("slope=",slope,","," ","intercept=",intercept,",\n"," ","R^2=",R2,","," ","R^2.Adj=",R2.Adj)))
+exp_corr
+#thats pretty
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/SRR1945861_TAIR_exp_corr.pdf", width = 12, height = 6)
+  plot(exp_corr)
+  dev.off()
+
+
+
+```
+
+
+Correlate expression changes to CNS count changes,
+- need to load in ka/ks data? actually where is CNS count per gene files at...
+NEEDS tair_eco_df from above
+```{r}
+cns_count_info <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info.txt",sep = "\t",row.names = NULL,header = T)
+colnames(cns_count_info)[1] <- "gene_id"
+cns_count_subset <- cns_count_info[which(grepl("SRR1945861",cns_count_info$Ecotype)),]
+
+tair_eco_df$gene_id <- rownames(tair_eco_df)
+cns_count_exp <- merge(cns_count_subset,tair_eco_df, by = "gene_id")
+
+avg_df <- cns_count_exp %>%
+  mutate(Eco_avg = (SRR1945861_bwa_alt_3_masked_br1 + SRR1945861_bwa_alt_3_masked_br2)/2) %>% 
+  mutate(TAIR_avg = (TAIR10_ref_br1 + TAIR10_ref_br2)/2) %>% 
+  mutate(Exp_diff = Eco_avg - TAIR_avg)
+
+regression=function(df){
+        #setting the regression function. 
+        reg_fun<-lm(formula=df$Exp_diff~df$CNS_Change) #regression function
+        #getting the slope, intercept, R square and adjusted R squared of 
+        #the regression function (with 3 decimals).
+        slope<-round(coef(reg_fun)[2],3)  
+        intercept<-round(coef(reg_fun)[1],3) 
+        R2<-round(as.numeric(summary(reg_fun)[8]),3)
+        R2.Adj<-round(as.numeric(summary(reg_fun)[9]),3)
+        c(slope,intercept,R2,R2.Adj)
+}
+
+regressions_data <-ddply(avg_df,"Ecotype",regression)
+colnames(regressions_data)<-c ("Ecotype","slope","intercept","R2","R2.Adj")
+
+
+count_exp_corr <- avg_df[which(avg_df$CNS_Change != 0),] %>% 
+  ggplot(aes(x=CNS_Change,y=Exp_diff)) +
+  geom_point(alpha = 0.1) +
+  ylim(-1000,1000) +
+  geom_smooth(method='lm') +
+  geom_label(data=regressions_data, size = 3, inherit.aes=FALSE, aes(x = -50, y = 500,
+label=paste("slope=",slope,","," ","intercept=",intercept,",\n"," ","R^2=",R2,","," ","R^2.Adj=",R2.Adj)))
+count_exp_corr
+#
+
+#expression change distributions for: CNS gain, CNS loss, no CNS change
+pav_list <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/SRR1945861_bwa_alt_3_masked_missing.txt",what = character())
+posv_list <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/SRR1945861_bwa_alt_3_masked_moved.txt",what = character())
+cns_gene <- scan(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/col_0_cns01_hits.txt",what = character())
+
+pav_list <- gsub("[0-9]*_","",pav_list)
+posv_list <- gsub("[0-9]*_","",posv_list)
+cns_gene <- gsub("[0-9]*_","",cns_gene)
+
+avg_tag_df <- avg_df %>%
+  mutate(Tag = ifelse(gene_id %in% pav_list, "PAV",
+                      ifelse(gene_id %in% posv_list, "PosV", 
+                             ifelse(gene_id %in% cns_gene, "CNS_Gene", "No_CNS"))))
+avg_df_cns_change <- avg_tag_df %>% 
+  mutate(CNS_CT = ifelse(CNS_Change > 0, "CNS_Gain",
+                         ifelse(CNS_Change == 0, "No_Change", "CNS_Loss")))
+
+#class correlation
+class_corr <- avg_df_cns_change %>% 
+  ggplot(aes(x=CNS_CT, y= Exp_diff)) +
+  geom_violin(alpha = 0.5, aes( fill = CNS_CT)) +
+  ylim(-100,100) +
+  geom_boxplot(alpha = 0.1) +
+  facet_wrap( ~ Tag)
+class_corr
+#
+
+
+```
+
+Distribution of gene changes across CNS change classes for all four ecotypes,
+get all code in here? think so
+```{r}
+#loop through list of files load them in
+#- make list of data frames, make tair_eco_df separately?
+
+#would be easiest to work backwards:
+#- final product == Ecotype, gene_id, CNS_CT, Tag, Exp_diff, CNS_Change
+#probs the easiest was is to just generate these separately and concatenate
+#do I have the chops to keep manipulating the list?
+
+#first thing is to create list_of_exp_matricies
+#file list will be hmmm
+#work code to combine things where ya need em
+
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+#library(ggplot2)
+
+suffix <- "_fC_mat.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,header = T,row.names = NULL,skip = 1,sep = "\t")
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+
+#load in TAIR expression df
+tair_br1 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br1_fC_mat.txt", header = T,row.names = NULL,skip = 1,sep = "\t")
+tair_br2 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br2_fC_mat.txt", header = T,row.names = NULL,skip = 1,sep = "\t")
+tair_br1_sub <- tair_br1[,c(1,7)]
+tair_br2_sub <- tair_br2[,c(1,7)]
+tair_merge <- merge(tair_br1_sub,tair_br2_sub)
+colnames(tair_merge) <- c("gene_id","TAIR10_ref_br1","TAIR10_ref_br2")
+
+#combine bioreps
+eco_list <- unique(gsub("_br[12]","",names(loaded_list_of_files)))
+list_merged <- list()
+for (i in 1:length(eco_list)) {
+  sub_index <- which(grepl(eco_list[i],names(loaded_list_of_files)))
+  list_subset <- loaded_list_of_files[sub_index]
+  comb_df <- Reduce(merge,list_subset)
+  list_merged[[i]] <- comb_df
+  names(list_merged)[i] <- eco_list[i]
+  rm(sub_index,comb_df)
+}
+
+#load in CNS meta info:
+cns_count_info <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info.txt",sep = "\t",row.names = NULL,header = T)
+colnames(cns_count_info)[1] <- "gene_id"
+
+#subset and rename columns.. eh just do everything in this loop
+for (i in 1:length(list_merged)) {
+  #View(list_merged[[i]])
+  list_merged[[i]] <- list_merged[[i]][,c(1,7,8)]
+  #colnames(list_merged[[i]]) <- c("gene_id",
+  #                                paste0(names(list_merged)[i],"_br1"),
+  #                                paste0(names(list_merged)[i],"_br2"))
+  #since combining across ecotypes later, just make general name
+  colnames(list_merged[[i]]) <- c("gene_id", "Ecotype_br1", "Ecotype_br2")
+  
+  #pick highest expressed homolog, sum expression
+  #sort expression, choose first in duplicated, then remove sum
+  list_merged[[i]]$gene_id <- gsub("_[0-9]+$","",list_merged[[i]]$gene_id)
+  list_merged[[i]]$sum <- (list_merged[[i]][,2] + list_merged[[i]][,3])
+  list_merged[[i]] <- list_merged[[i]][order(list_merged[[i]]$gene_id,
+                                             list_merged[[i]]$sum),]
+  list_merged[[i]] <- list_merged[[i]][ ! duplicated(list_merged[[i]]$gene_id),]
+  list_merged[[i]] <- list_merged[[i]][,c(1:3)]
+  
+  #combine with TAIR
+  list_merged[[i]] <- merge(tair_merge,list_merged[[i]],by = "gene_id")
+  #genes as rownames, only need this for DE
+  #rownames(list_merged[[i]]) <- list_merged[[i]]$gene_id
+  #list_merged[[i]] <- list_merged[[i]][,-1]
+  
+  #add in ka/ks stuffs
+  cns_count_subset <- cns_count_info[which(grepl(
+    names(list_merged)[i],cns_count_info$Ecotype)),]
+  
+  #add CNS tag
+  pav_list <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/acc_missing/01_final/01_single_rep/",
+                      names(list_merged)[i],"_missing.txt"),what = character())
+  posv_list <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/acc_moved/01_final/01_single_rep/",
+                      names(list_merged)[i],"_moved.txt"),what = character())
+  cns_gene <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/col_0_cns01_hits.txt"),what = character())
+
+  pav_list <- gsub("[0-9]*_","",pav_list)
+  posv_list <- gsub("[0-9]*_","",posv_list)
+  cns_gene <- gsub("[0-9]*_","",cns_gene)
+
+  list_merged[[i]] <- list_merged[[i]] %>%
+    mutate(Tag = ifelse(gene_id %in% pav_list, "PAV",
+                        ifelse(gene_id %in% posv_list, "PosV", 
+                               ifelse(gene_id %in% cns_gene, "Collinear", "No_CNS"))))
+  
+  list_merged[[i]] <- merge(cns_count_subset,list_merged[[i]], by = "gene_id")
+}
+
+#average expression, log linear later
+#average expression, add ecotype tag, combine? change colnames to ecotype rather than specific variabley
+
+#combine 4 dfs to one
+#install.packages("data.table")
+library(data.table) 
+cns_exp_table <- rbindlist(list_merged)
+
+#refactor ecotype column
+cns_exp_table$Ecotype <- factor(cns_exp_table$Ecotype, levels = 
+                                  unique(as.character(cns_exp_table$Ecotype)))
+#levels(cns_exp_table$Ecotype)
+#average expression column
+cns_exp_table <- cns_exp_table %>% 
+  mutate(TAIR10_ref_avg = (TAIR10_ref_br1 + TAIR10_ref_br2) / 2) %>% 
+  mutate(Ecotype_avg = (Ecotype_br1 + Ecotype_br2) / 2) %>% 
+  mutate(TAIR10_ref_log_exp = log(TAIR10_ref_avg + 1)) %>% 
+  mutate(Ecotype_log_exp = log(Ecotype_avg + 1)) %>% 
+  mutate(Exp_diff = Ecotype_avg - TAIR10_ref_avg)
+```
+
+Plotting, requires above code block for cns_exp_table object
+```{r}
+#plotting
+cns_exp_plot <- cns_exp_table %>% 
+  ggplot(aes(x = Tag, y = Ecotype_avg, fill = Tag)) +
+  geom_violin(alpha = 0.8) +
+  ylim(0,20) +
+  geom_boxplot(alpha = 0.1, aes(fill = Tag)) +
+  ggtitle(label = "Expression counts (not normalized) of 4 ecotypes across different gene classes")
+cns_exp_plot
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/exp_count_cns_tag.pdf", width = 12, height = 6)
+  plot(cns_exp_plot)
+  dev.off()
+#
+#check out correlations
+library(plyr)
+regression=function(df){
+        #setting the regression function. 
+        reg_fun<-lm(formula=df$TAIR10_ref_avg~df$Ecotype_avg) #regression function
+        #getting the slope, intercept, R square and adjusted R squared of 
+        #the regression function (with 3 decimals).
+        slope<-round(coef(reg_fun)[2],3)  
+        intercept<-round(coef(reg_fun)[1],3) 
+        R2<-round(as.numeric(summary(reg_fun)[8]),3)
+        R2.Adj<-round(as.numeric(summary(reg_fun)[9]),3)
+        c(slope,intercept,R2,R2.Adj)
+}
+
+regressions_data <-ddply(cns_exp_table,"Tag",regression)
+colnames(regressions_data)<-c ("Tag","slope","intercept","R2","R2.Adj")
+
+exp_corr <- cns_exp_table %>% 
+  ggplot(aes(x=TAIR10_ref_avg,y=Ecotype_avg, colour = Tag)) +
+  geom_point(alpha = 0.1) +
+  xlim(0,1000) +
+  ylim(0,1000) +
+  facet_wrap(~ Tag) +
+  geom_smooth(method='lm') +
+  geom_label(data=regressions_data, size = 3, inherit.aes=FALSE, aes(x = 600, y = 50,
+label=paste("slope=",slope,","," ","intercept=",intercept,",\n"," ","R^2=",R2,","," ","R^2.Adj=",R2.Adj)))
+exp_corr
+  
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/exp_count_eco_tair_corr_tag.pdf", width = 12, height = 6)
+  plot(exp_corr)
+  dev.off()
+##
+#check expression change distribution across classes of genes: CNS loss, no change, CNS gain
+  #tease out no change to CNS gene and no_CNS gene
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_CT = ifelse(CNS_Change > 0, "CNS_Gain",
+                         ifelse(CNS_Change < 0, "CNS_Loss", "No_Change")))
+#add another column for just CNS gene or not
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_tag = ifelse(gene_id %in% cns_gene, "CNS_gene", "No_CNS"))
+
+#class correlation
+class_corr <- cns_exp_table %>% 
+  ggplot(aes(x=CNS_CT, y= Exp_diff, colour = CNS_tag)) +
+  geom_violin(alpha = 0.5, aes( fill = CNS_CT)) +
+  ylim(-100,100) +
+  geom_boxplot(alpha = 0.1) +
+  facet_wrap( ~ CNS_tag) +
+  ggtitle(label = "Expression count differences for CNS gain and loss relative to reference ecotype between \nGenes with a CNS in ecotype, or no_CNS in ecotype")
+class_corr
+#
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/exp_count_diff_eco_tair_tag.pdf", width = 12, height = 6)
+  plot(class_corr)
+  dev.off()
+
+```
+
+
+Differential expression
+Just create list of DE genes and whether up or down in ecotype
+All comps to Col-0
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library("DESeq2")
+#library(ggplot2)
+
+suffix <- "_fC_mat.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,header = T,row.names = NULL,skip = 1,sep = "\t")
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+
+#load in TAIR expression df
+tair_br1 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br1_fC_mat.txt", header = T,row.names = NULL,skip = 1,sep = "\t")
+tair_br2 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br2_fC_mat.txt", header = T,row.names = NULL,skip = 1,sep = "\t")
+tair_br1_sub <- tair_br1[,c(1,7)]
+tair_br2_sub <- tair_br2[,c(1,7)]
+tair_merge <- merge(tair_br1_sub,tair_br2_sub)
+colnames(tair_merge) <- c("gene_id","TAIR10_ref_br1","TAIR10_ref_br2")
+
+#combine bioreps
+eco_list <- unique(gsub("_br[12]","",names(loaded_list_of_files)))
+list_merged <- list()
+for (i in 1:length(eco_list)) {
+  sub_index <- which(grepl(eco_list[i],names(loaded_list_of_files)))
+  list_subset <- loaded_list_of_files[sub_index]
+  comb_df <- Reduce(merge,list_subset)
+  list_merged[[i]] <- comb_df
+  names(list_merged)[i] <- eco_list[i]
+  rm(sub_index,comb_df)
+}
+
+coldata <- data.frame(ecotype = factor(x = c(rep("TAIR10_ref",2), rep("Ecotype",2)), levels = c("TAIR10_ref", "Ecotype")))
+
+#subset and rename columns.. eh just do everything in this loop
+i = 1
+for (i in 1:length(list_merged)) {
+  #View(list_merged[[i]])
+  list_merged[[i]] <- list_merged[[i]][,c(1,7,8)]
+  #colnames(list_merged[[i]]) <- c("gene_id",
+  #                                paste0(names(list_merged)[i],"_br1"),
+  #                                paste0(names(list_merged)[i],"_br2"))
+  #since combining across ecotypes later, just make general name
+  colnames(list_merged[[i]]) <- c("gene_id", "Ecotype_br1", "Ecotype_br2")
+  
+  #pick highest expressed homolog, sum expression
+  #05-23-19:
+    #now this is a problem, because we are losing information on which gene is actually DE
+    #working through to try and find a way to test multiple query against same ref gene
+    #the merge step!! Instead of stripping gene_id, make new column
+    #probably easiest if there is a conversion step here?
+    #whats the easiest way? need to pair to tair in merge and back to augustus for analysis
+    #need to do augustus.. and get a conversion table
+    #whats the easiest way to conversion table? Merge? 
+    #that should drop those without orthologs also which is nice
+    #need to go back to when made fC_mat
+  #sort expression, choose first in duplicated, then remove sum
+  list_merged[[i]]$gene_id <- gsub("_[0-9]+$","",list_merged[[i]]$gene_id)
+  list_merged[[i]]$sum <- (list_merged[[i]][,2] + list_merged[[i]][,3])
+  list_merged[[i]] <- list_merged[[i]][order(list_merged[[i]]$gene_id,
+                                             list_merged[[i]]$sum),]
+  list_merged[[i]] <- list_merged[[i]][ ! duplicated(list_merged[[i]]$gene_id),]
+  list_merged[[i]] <- list_merged[[i]][,c(1:3)]
+  
+  #combine with TAIR
+  list_merged[[i]] <- merge(tair_merge,list_merged[[i]],by = "gene_id")
+  #gene_id as row name
+  rownames(list_merged[[i]]) <- list_merged[[i]]$gene_id
+  #remove gene id column
+  list_merged[[i]] = list_merged[[i]][,-1]
+  
+  rownames(coldata) <- colnames(list_merged[[i]])
+  
+  dds <- DESeqDataSetFromMatrix(countData = list_merged[[i]],
+                              colData = coldata,
+                              design = ~ ecotype)
+  dds <- DESeq(dds)
+  #resultsNames(dds)
+  #res <- results(dds, name = "ecotype_Ecotype_vs_TAIR10_ref")
+  res <- results(dds, name = "ecotype_Ecotype_vs_TAIR10_ref", alpha=0.05)
+  #res <- lfcShrink(dds, coef = "ecotype_Ecotype_vs_TAIR10_ref",type = "apeglm")
+  resOrdered <- res[order(res$pvalue),]
+  resSig <- subset(resOrdered, padj < 0.05)
+  #make sure I know what these significance cutoffs are
+  #summary(resSig)
+  #ugh will take some messing with, I guess try and find log fold change element see if >0 or   <0
+  #write up or down my self, so which is higher if positive? SHould be Ecotype, but check in   count matrix to be sure once output things
+  
+  ##need to know which way expression tilts for zeros....
+  #exp_df = list_merged[[i]]
+  #exp_df$Gene = rownames(list_merged[[i]])
+  #exp_df = exp_df %>% 
+  #  mutate(TAIR10_avg = TAIR10_ref_br1 + TAIR10_ref_br2) %>% 
+  #  mutate(Ecotype_avg = Ecotype_br1 + Ecotype_br2) %>% 
+  #  mutate(Diff = Ecotype_avg - TAIR10_avg)
+  
+  #DE_list <- row.names(resSig)
+  #out_df <- data.frame( Gene = row.names(res),
+  #                      LFC = (res$log2FoldChange))
+
+  #merged_df = merge(exp_df,out_df, by = "Gene")
+  
+  out_df <- out_df %>% 
+    mutate(Regulation = ifelse(! is.element(Gene ,DE_list), "No_Change",
+                               ifelse(LFC > 0, "Up", "Down"))) %>% 
+    mutate(Change = ifelse(! is.element(Gene ,DE_list), "0",
+                               ifelse(LFC > 0, "1", "-1"))) 
+  #output both all df and DE gene list
+  DE_df <- out_df[which(out_df$Gene %in% DE_list),]
+  
+  write.table(out_df,paste0("/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/",
+                            names(list_merged)[i],"_DE_all.txt"),sep = "\t",
+              quote = F,row.names = F)  
+  write.table(DE_df,paste0("/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/",
+                            names(list_merged)[i],"_DE.txt"),sep = "\t",
+              quote = F,row.names = F)  
+  
+  
+}
+
+
+
+
+##get colnames right
+#rownames(coldata) <- colnames(list_merged[[1]])
+###
+#
+##BiocManager::install("DESeq2")
+#library("DESeq2")
+###View(list_merged[[i]][which(row.names(list_merged[[i]]) == "AT4G34630"),])
+#dds <- DESeqDataSetFromMatrix(countData = list_merged[[i]],
+#                              colData = coldata,
+#                              design = ~ ecotype)
+#dds <- DESeq(dds)
+##resultsNames(dds)
+#res <- results(dds, name = "ecotype_Ecotype_vs_TAIR10_ref")
+#res <- results(dds, name = "ecotype_Ecotype_vs_TAIR10_ref", alpha=0.05)
+##res <- lfcShrink(dds, coef = "ecotype_Ecotype_vs_TAIR10_ref",type = "apeglm")
+#resOrdered <- res[order(res$pvalue),]
+#resSig <- subset(resOrdered, padj < 0.05)
+##make sure I know what these significance cutoffs are
+#summary(resSig)
+###ugh will take some messing with, I guess try and find log fold change element see if >0 or <0
+###write up or down my self, so which is higher if positive? SHould be Ecotype, but check in #count matrix to be sure once output things
+#out_df <- data.frame( Gene = row.names(resSig),
+#                      LFC = (resSig$log2FoldChange))
+#DE_list <- row.names(resSig)
+#out_df <- data.frame( Gene = row.names(res),
+#                      LFC = (res$log2FoldChange))
+#out_df <- out_df %>% 
+#  mutate(Regulation = ifelse(! is.element(Gene ,DE_list), "No_Change",
+#                             ifelse(LFC > 0, "Up", "Down"))) %>% 
+#  mutate(Change = ifelse(! is.element(Gene ,DE_list), "0",
+#                             ifelse(LFC > 0, "1", "-1")))
+
+#hmmm also want an output file with all genes with up down or no change...
+#sanity check plot
+#tmp_plot = out_df %>% 
+#  ggplot(aes(x = Regulation, y = LFC)) +
+#  geom_violin()
+#tmp_plot
+#
+
+```
+
+Checking for overrepresentation of PAV / PosV / CNS_Genes in DE lists
+
+```{r}
+
+
+phyper(208, 11555, (27000-11555), 2088)
+phyper(29, 11555, (27000-11555), 247)
+phyper(118, 4815, (62916-4815), 1524, lower.tail = F)
+
+#phyper("Overlap","Size of test set", "Size of Larger pool - Test set","Size of query set")
+names(list_merged)[i]
+#SRR1945916_bwa_alt_3_masked
+pav_list <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/acc_missing/01_final/01_single_rep/",
+                      names(list_merged)[i],"_missing.txt"),what = character())
+posv_list <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/acc_moved/01_final/01_single_rep/",
+                      names(list_merged)[i],"_moved.txt"),what = character())
+cns_gene <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/col_0_cns01_hits.txt"),what = character())
+#sub to gene
+pav_gene_list <- unique(gsub("[0-9]*_","",pav_list))
+posv_gene_list <- unique(gsub("[0-9]*_","",posv_list))
+cns_gene_list <- unique(gsub("[0-9]*_","",cns_gene))
+
+pav_overlap <- length(DE_list[which(pav_gene_list %in% DE_list)])
+posv_overlap <- length(DE_list[which(posv_gene_list %in% DE_list)])
+cns_overlap <- length(DE_list[which(cns_gene_list %in% DE_list)])
+
+phyper(pav_overlap,length(pav_gene_list),(length(cns_gene_list) - length(pav_gene_list)),length(DE_list))
+#[1] 0.002240828
+
+phyper(posv_overlap,length(posv_gene_list),(length(cns_gene_list) - length(posv_gene_list)),length(DE_list))
+#[1] 1.956301e-08
+
+nrow(list_merged[[i]])
+phyper(cns_overlap,length(cns_gene_list),(24187 - length(cns_gene_list)),length(DE_list))
+#[1] 2.636838e-08
+
+```
+
+
+Run through you expression distribution graphs with the normalized read counts
+
+Need to convert stringtie file to gene <tab> Count
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+#library(ggplot2)
+
+suffix <- "_stringtie_cut.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,header = T,row.names = NULL,sep = "\t")
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+accession_list
+#combine the bio reps? no wait until manipulate correctly
+#need to unique gene them
+first_rep <- loaded_list_of_files[[1]]
+second_rep <- loaded_list_of_files[[2]]
+colnames(second_rep) <- c("Gene","Coverage2","FPKM2","TPM2")
+#first_rep$Gene <- gsub("\\.[0-9]*","",first_rep$Gene)
+#second_rep$Gene <- gsub("\\.[0-9]*","",second_rep$Gene)
+#first_rep_sub <- first_rep[,c(1,7)]
+#second_rep_sub <- second_rep[,c(1,7)]
+#colnames(first_rep)
+#colnames(second_rep)
+merged_df <- merge(first_rep,second_rep, by = "Gene", all = T)
+
+
+#colnames(merged_df) <- c("gene_id",names(loaded_list_of_files)[1]
+#                                  ,names(loaded_list_of_files)[2])
+##just run through this one for now
+#first_rep_gene <- sort(first_rep$Gene)
+#second_rep_gene <- sort(second_rep$Gene)
+#all(first_rep_gene == second_rep_gene)
+
+
+#pick out the highest expressed unique id
+#aa <- a[order(a$id, -abs(a$value) ), ] #sort by id and reverse of abs(value)
+#aa[ !duplicated(aa$id), ]              # take the first row within each id
+#merged_df
+#fuck should do this before merging??? naw do highest pair
+#cut underscores in gene names...
+merged_df$Gene <- gsub("\\.[0-9]+_[0-9]*$","",merged_df$Gene)
+
+
+merged_df$sum <- (merged_df$FPKM + merged_df$FPKM2)
+merged_uni_sort <- merged_df[order(merged_df$Gene, merged_df$sum),]
+merged_uni_df <- merged_uni_sort[ ! duplicated(merged_uni_sort$Gene),]
+
+#merged_uni_df <- merged_uni_df[,c(1:8)]
+
+
+#nice now can merge with tair read.table(file = i,header = T,row.names = NULL,sep = "\t")
+tair_br1 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br1_stringtie_cut.txt", header = T,row.names = NULL,sep = "\t")
+tair_br2 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br2_stringtie_cut.txt", header = T,row.names = NULL,sep = "\t")
+
+#tair_br1_sub <- tair_br1[,c(1,7)]
+colnames(tair_br2) <- c("Gene","Coverage2","FPKM2","TPM2")
+
+tair_merge <- merge(tair_br1,tair_br2, by = "Gene", all = T)
+#colnames(tair_merge) <- c("gene_id","TAIR10_ref_br1","TAIR10_ref_br2")
+
+tair_merge$Gene <- gsub("\\.[0-9]+_[0-9]*$","",tair_merge$Gene)
+tair_merge$sum <- (tair_merge$FPKM + tair_merge$FPKM2)
+tair_uni_sort <- merged_df[order(tair_merge$Gene, tair_merge$sum),]
+tair_uni_df <- tair_uni_sort[ ! duplicated(tair_uni_sort$Gene),]
+
+#combine
+tair_eco_df <- merge(tair_uni_df,merged_uni_df,by = "Gene")
+tair_eco_df <- tair_eco_df[which(! grepl("augustus",tair_eco_df$Gene)),]
+#24154
+#ugh, should only be 24kish....
+#> nrow(tair_eco_df[which(grepl("augustus",tair_eco_df$Gene)),])
+#[1] 1248
+#> 25402 - 1248
+#[1] 24154
+#perfect
+```
+
+now have tair_eco_df for one pairwise accession, lets get code to loop through everything
+- Produces cns_exp_table
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+#library(ggplot2)
+
+#get loaded_list of files
+
+suffix <- "_stringtie_cut.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,header = T,row.names = NULL,sep = "\t")
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+#accession_list
+
+#combine bioreps
+eco_list <- unique(gsub("_br[12]","",names(loaded_list_of_files)))
+list_merged <- list()
+for (i in 1:length(eco_list)) {
+  sub_index <- which(grepl(eco_list[i],names(loaded_list_of_files)))
+  list_subset <- loaded_list_of_files[sub_index]
+  colnames(list_subset[[1]]) <- c("Gene","Ecotype_Coverage","Ecotype_FPKM","Ecotype_TPM")
+  colnames(list_subset[[2]]) <- c("Gene","Ecotype_Coverage2","Ecotype_FPKM2","Ecotype_TPM2")
+  
+  comb_df <- Reduce(merge,list_subset)
+  
+  comb_df$Gene <- gsub("\\.[0-9]+_[0-9]*$","",comb_df$Gene)
+  comb_df$Ecotype_sum <- (comb_df$Ecotype_FPKM + comb_df$Ecotype_FPKM2)
+  merged_uni_sort <- comb_df[order(comb_df$Gene, comb_df$Ecotype_sum),]
+  merged_uni_df <- merged_uni_sort[ ! duplicated(merged_uni_sort$Gene),]
+  
+  list_merged[[i]] <- merged_uni_df
+  names(list_merged)[i] <- eco_list[i]
+  rm(sub_index,comb_df,list_subset,merged_uni_sort,merged_uni_df)
+  
+  #first_rep <- loaded_list_of_files[[1]]
+  #second_rep <- loaded_list_of_files[[2]]
+  #colnames(second_rep) <- c("Gene","Coverage2","FPKM2","TPM2")
+  #merged_df <- merge(first_rep,second_rep, by = "Gene", all = T)
+}
+
+#load TAIR10 data
+tair_br1 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br1_stringtie_cut.txt", header = T,row.names = NULL,sep = "\t")
+tair_br2 <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/04_count_table/TAIR10_ref_br2_stringtie_cut.txt", header = T,row.names = NULL,sep = "\t")
+
+#tair_br1_sub <- tair_br1[,c(1,7)]
+colnames(tair_br1) <- c("Gene","TAIR_Coverage","TAIR_FPKM","TAIR_TPM")
+colnames(tair_br2) <- c("Gene","TAIR_Coverage2","TAIR_FPKM2","TAIR_TPM2")
+
+tair_merge <- merge(tair_br1,tair_br2, by = "Gene", all = T)
+#colnames(tair_merge) <- c("gene_id","TAIR10_ref_br1","TAIR10_ref_br2")
+
+tair_merge$Gene <- gsub("\\.[0-9]+_[0-9]*$","",tair_merge$Gene)
+tair_merge$TAIR_sum <- (tair_merge$TAIR_FPKM + tair_merge$TAIR_FPKM2)
+tair_uni_sort <- tair_merge[order(tair_merge$Gene, tair_merge$TAIR_sum),]
+tair_uni_df <- tair_uni_sort[ ! duplicated(tair_uni_sort$Gene),]
+
+#load in CNS meta info:
+cns_count_info <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info.txt",sep = "\t",row.names = NULL,header = T)
+colnames(cns_count_info)[1] <- "Gene"
+colnames(cns_count_info)[2] <- "Ecotype_Gene"
+
+#subset and rename columns.. eh just do everything in this loop
+#i <- 1
+for (i in 1:length(list_merged)) {
+  #View(list_merged[[i]])
+#  list_merged[[i]] <- list_merged[[i]][,c(1,7,8)]
+  #colnames(list_merged[[i]]) <- c("gene_id",
+  #                                paste0(names(list_merged)[i],"_br1"),
+  #                                paste0(names(list_merged)[i],"_br2"))
+  #since combining across ecotypes later, just make general name
+#  colnames(list_merged[[i]]) <- c("Gene", "Ecotype_br1", "Ecotype_br2")
+  
+  #pick highest expressed homolog, sum expression
+  #sort expression, choose first in duplicated, then remove sum
+#  list_merged[[i]]$gene_id <- gsub("_[0-9]+$","",list_merged[[i]]$gene_id)
+#  list_merged[[i]]$sum <- (list_merged[[i]][,2] + list_merged[[i]][,3])
+#  list_merged[[i]] <- list_merged[[i]][order(list_merged[[i]]$gene_id,
+#                                             list_merged[[i]]$sum),]
+#  list_merged[[i]] <- list_merged[[i]][ ! duplicated(list_merged[[i]]$gene_id),]
+#  list_merged[[i]] <- list_merged[[i]][,c(1:3)]
+  
+  #combine with TAIR
+#  list_merged[[i]] <- merge(tair_merge,list_merged[[i]],by = "Gene")
+  tair_eco_df <- merge(tair_uni_df,list_merged[[i]],by = "Gene")
+  tair_eco_df <- tair_eco_df[which(! grepl("augustus",tair_eco_df$Gene)),]
+  
+  #add in ka/ks stuffs
+  cns_count_subset <- cns_count_info[which(grepl(
+    names(list_merged)[i],cns_count_info$Ecotype)),]
+  
+  #add CNS tag
+  pav_list <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/acc_missing/01_final/01_single_rep/",
+                      names(list_merged)[i],"_missing.txt"),what = character())
+  posv_list <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/acc_moved/01_final/01_single_rep/",
+                      names(list_merged)[i],"_moved.txt"),what = character())
+  cns_gene <- scan(file = paste0("/Users/alanyocca/Documents/01_athal_cns/",
+                            "cns_calls/col_0_cns01_hits.txt"),what = character())
+
+  pav_list <- gsub("[0-9]*_","",pav_list)
+  posv_list <- gsub("[0-9]*_","",posv_list)
+  cns_gene <- gsub("[0-9]*_","",cns_gene)
+
+  list_merged[[i]] <- tair_eco_df %>%
+    mutate(Tag = ifelse(Gene %in% pav_list, "PAV",
+                        ifelse(Gene %in% posv_list, "PosV", 
+                               ifelse(Gene %in% cns_gene, "Collinear", "No_CNS"))))
+ #View(list_merged[[i]]) 
+ #colnames(cns_count_subset)
+  list_merged[[i]] <- merge(cns_count_subset,list_merged[[i]], by = "Gene")
+}
+
+#average expression, log linear later
+#average expression, add ecotype tag, combine? change colnames to ecotype rather than specific variabley
+
+#combine 4 dfs to one
+#install.packages("data.table")
+library(data.table) 
+cns_exp_table <- rbindlist(list_merged)
+
+#refactor ecotype column
+cns_exp_table$Ecotype <- factor(cns_exp_table$Ecotype, levels = 
+                                  unique(as.character(cns_exp_table$Ecotype)))
+#levels(cns_exp_table$Ecotype)
+#average expression column
+cns_exp_table <- cns_exp_table %>% 
+  mutate(TAIR_FPKM_avg = (TAIR_FPKM + TAIR_FPKM2) / 2) %>% 
+  mutate(Ecotype_FPKM_avg = (Ecotype_FPKM + Ecotype_FPKM2) / 2) %>% 
+  mutate(TAIR_FPKM_log_exp = log(TAIR_FPKM_avg + 1)) %>% 
+  mutate(Ecotype_FPKM_log_exp = log(Ecotype_FPKM_avg + 1)) %>% 
+  mutate(Exp_diff = Ecotype_FPKM_avg - TAIR_FPKM_avg)
+
+cns_exp_table <- cns_exp_table %>% 
+  mutate(TAIR_TPM_avg = (TAIR_TPM + TAIR_TPM2) / 2) %>% 
+  mutate(Ecotype_TPM_avg = (Ecotype_TPM + Ecotype_TPM2) / 2) %>% 
+  mutate(TAIR_TPM_log_exp = log(TAIR_TPM_avg + 1)) %>% 
+  mutate(Ecotype_TPM_log_exp = log(Ecotype_TPM_avg + 1)) %>% 
+  mutate(Exp_diff = Ecotype_TPM_avg - TAIR_TPM_avg)
+
+```
+
+alrighty, above gives us our master cns_exp_table object to plot things with
+optional cleanup code block
+```{r}
+rm(list_merged,loaded_list_of_files,tair_br1,tair_br2,tair_eco_df,tair_merge,tair_uni_df,tair_uni_sort,cns_count_info,cns_count_subset,accession_list,i,eco_list,list_of_files,path,pav_list,posv_list,suffix)
+```
+
+plot some stuffs
+want to make same 3 plots as earlier
+- expression correlation across cns classes
+- expression difference distribution across CNS loss / CNS gains
+- exp distribution across cns gene classes (PAV, PosV)
+
+remember, below for NORMALIZED EXPRESSION
+- just did FPKM calculated from stringtie
+```{r}
+#plotting
+cns_exp_plot <- cns_exp_table %>% 
+  ggplot(aes(x = Tag, y = Ecotype_FPKM_avg, fill = Tag)) +
+  geom_violin(alpha = 0.8) +
+  ylim(0,20) +
+  geom_boxplot(alpha = 0.1, aes(fill = Tag)) +
+  ggtitle(label = "Normalized expression counts of 4 ecotypes across different gene classes")
+cns_exp_plot
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/exp_norm_count_cns_tag.pdf", width = 12, height = 6)
+  plot(cns_exp_plot)
+  dev.off()
+#
+#check out correlations
+library(plyr)
+regression=function(df){
+        #setting the regression function. 
+        reg_fun<-lm(formula=df$TAIR_FPKM_avg~df$Ecotype_FPKM_avg) #regression function
+        #getting the slope, intercept, R square and adjusted R squared of 
+        #the regression function (with 3 decimals).
+        slope<-round(coef(reg_fun)[2],3)  
+        intercept<-round(coef(reg_fun)[1],3) 
+        R2<-round(as.numeric(summary(reg_fun)[8]),3)
+        R2.Adj<-round(as.numeric(summary(reg_fun)[9]),3)
+        c(slope,intercept,R2,R2.Adj)
+}
+
+regressions_data <-ddply(cns_exp_table,"Tag",regression)
+colnames(regressions_data)<-c ("Tag","slope","intercept","R2","R2.Adj")
+regressions_data
+#> regressions_data MANY
+#        Tag df$Ecotype_FPKM_many (Intercept)    V1    V2
+#1 Collinear                0.309    1434.038 0.240 0.240
+#2    No_CNS                0.549     497.513 0.464 0.464
+#3       PAV                0.214     926.570 0.128 0.126
+#4      PosV                0.004    1422.805 0.003 0.003
+
+#> regressions_data FPKM
+#        Tag df$Ecotype_FPKM_avg (Intercept)    V1    V2
+#1 Collinear               0.309      14.340 0.240 0.240
+#2    No_CNS               0.549       4.975 0.464 0.464
+#3       PAV               0.214       9.266 0.128 0.126
+#4      PosV               0.004      14.228 0.003 0.003
+
+cns_exp_table = cns_exp_table %>% 
+  mutate(TAIR_FPKM_many = 100 * TAIR_FPKM_avg) %>% 
+  mutate(Ecotype_FPKM_many = 100 * Ecotype_FPKM_avg) 
+
+exp_corr <- cns_exp_table %>% 
+  ggplot(aes(x=TAIR_FPKM_many,y=Ecotype_FPKM_many, colour = Tag)) +
+  geom_point(alpha = 0.1) +
+  xlim(0,30) +
+  ylim(0,30) +
+  facet_wrap(~ Tag) +
+  geom_smooth(method='lm') +
+  geom_label(data=regressions_data, size = 3, inherit.aes=FALSE, aes(x = 15, y = 15,
+label=paste("slope=",slope,","," ","intercept=",intercept,",\n"," ","R^2=",R2,","," ","R^2.Adj=",R2.Adj)))
+exp_corr
+  
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/exp_count_eco_tair_corr_tag.pdf", width = 12, height = 6)
+#  plot(exp_corr)
+#  dev.off()
+##
+#check expression change distribution across classes of genes: CNS loss, no change, CNS gain
+  #tease out no change to CNS gene and no_CNS gene
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_CT = ifelse(CNS_Change > 0, "CNS_Gain",
+                         ifelse(CNS_Change < 0, "CNS_Loss", "No_Change")))
+#add another column for just CNS gene or not
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_tag = ifelse(Gene %in% cns_gene, "CNS_gene", "No_CNS")) %>% 
+  mutate(Fold_diff_exp = Ecotype_FPKM_avg / TAIR_FPKM_avg)
+
+#class correlation
+class_corr <- cns_exp_table %>% 
+  ggplot(aes(x=CNS_CT, y= Fold_diff_exp)) +
+  geom_violin(alpha = 0.5, aes( fill = CNS_CT)) +
+  scale_y_log10( limits = c(0.001,100)) +
+  geom_boxplot(alpha = 0.1) +
+  facet_wrap( ~ CNS_tag) +
+  ggtitle(label = "Expression count differences for CNS gain and loss relative to reference ecotype between \nGenes with a CNS in ecotype, or no_CNS in ecotype") +
+  facet_wrap(~Tag)
+class_corr
+#
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/exp_FPKM_diff_eco_tair_tag.pdf", width = 12, height = 6)
+  plot(class_corr)
+  dev.off()
+```
+
+same as above but with TPM
+
+```{r}
+#plotting
+cns_exp_plot <- cns_exp_table %>% 
+  ggplot(aes(x = Tag, y = Ecotype_TPM_avg, fill = Tag)) +
+  geom_violin(alpha = 0.8) +
+  ylim(0,20) +
+  geom_boxplot(alpha = 0.1, aes(fill = Tag)) +
+  ggtitle(label = "TPM of 4 ecotypes across different gene classes")
+cns_exp_plot
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/TPM_cns_tag.pdf", width = 12, height = 6)
+  plot(cns_exp_plot)
+  dev.off()
+#
+#check out correlations
+library(plyr)
+regression=function(df){
+        #setting the regression function. 
+        reg_fun<-lm(formula=df$TAIR_TPM_avg~df$Ecotype_TPM_avg) #regression function
+        #getting the slope, intercept, R square and adjusted R squared of 
+        #the regression function (with 3 decimals).
+        slope<-round(coef(reg_fun)[2],3)  
+        intercept<-round(coef(reg_fun)[1],3) 
+        R2<-round(as.numeric(summary(reg_fun)[8]),3)
+        R2.Adj<-round(as.numeric(summary(reg_fun)[9]),3)
+        c(slope,intercept,R2,R2.Adj)
+}
+
+regressions_data <-ddply(cns_exp_table,"CNS_CT",regression)
+colnames(regressions_data)<-c ("CNS_CT","slope","intercept","R2","R2.Adj")
+#regressions_data
+
+exp_corr <- cns_exp_table %>% 
+  ggplot(aes(x=TAIR_TPM_avg,y=Ecotype_TPM_avg, colour = CNS_CT)) +
+  geom_point(alpha = 0.1) +
+  xlim(0,1000) +
+  ylim(0,600) +
+  facet_wrap(~ CNS_CT) +
+  geom_smooth(method='lm') +
+  geom_label(data=regressions_data, size = 3, inherit.aes=FALSE, aes(x = 800, y = 100,
+label=paste("slope=",slope,","," ","intercept=",intercept,",\n"," ","R^2=",R2,","," ","R^2.Adj=",R2.Adj)))
+exp_corr
+  
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/TPM_eco_tair_corr_tag.pdf", width = 12, height = 6)
+  plot(exp_corr)
+  dev.off()
+##
+#check expression change distribution across classes of genes: CNS loss, no change, CNS gain
+  #tease out no change to CNS gene and no_CNS gene
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_CT = ifelse(CNS_Change > 0, "CNS_Gain",
+                         ifelse(CNS_Change < 0, "CNS_Loss", "No_Change")))
+#add another column for just CNS gene or not
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_tag = ifelse(Gene %in% cns_gene, "CNS_gene", "No_CNS")) %>% 
+  mutate(Fold_diff_exp = Ecotype_TPM_avg / TAIR_TPM_avg)
+
+#class correlation
+class_corr <- cns_exp_table %>% 
+  ggplot(aes(x=CNS_CT, y= Exp_diff)) +
+  geom_violin(alpha = 0.5, aes( fill = CNS_CT)) +
+#  scale_y_log10( limits = c(0.001,100)) +
+  ylim(-15,15) +
+  geom_boxplot(alpha = 0.1) +
+ #facet_wrap( ~ CNS_tag) +
+  ggtitle(label = "TPM differences for CNS gain and loss relative to reference ecotype between \nGenes with a CNS in ecotype, or no_CNS in ecotype") 
+  #facet_wrap(~Tag)
+class_corr
+#
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/TPM_diff_eco_tair_tag.pdf", width = 12, height = 6)
+  plot(class_corr)
+  dev.off()
+```
+
+Check for overrepresentation of DE genes for CNS_Gain, CNS_Loss, No_Change
+- Dependency: cns_exp_plot with CNS_CT
+
+```{r}
+#Get lists of DE genes?
+#Think about final data structure goal:
+#table
+#Gene<tab>CNS_CT
+
+#but subsetted all DE genes
+#also want column for up or down in ecotype
+cns_exp_table <- cns_exp_table %>% 
+  mutate(CNS_CT = ifelse(CNS_Change > 0, "CNS_Gain",
+                         ifelse(CNS_Change < 0, "CNS_Loss", "No_Change")))
+
+#load all lists? need to do this one ecotype at a time to ensure grabbing correct gene
+ecotype_list = unique(as.character(cns_exp_table$Ecotype))
+cns_de_df = data.frame()
+#i <- 1
+for (i in 1:length(ecotype_list)) {
+  DE_df <- read.table(file = paste0("/Users/alanyocca/Documents/01_athal_cns/24_RNA_seq/",
+                      ecotype_list[i],"_DE_all.txt"),sep = "\t", row.names = NULL, header = T)
+  loop_df <- cns_exp_table[which(cns_exp_table$Ecotype == ecotype_list[i]),]
+  merged_df = merge(DE_df,loop_df, by = "Gene")
+  cns_de_df = rbind(cns_de_df,merged_df)
+}  
+
+View(cns_de_df[which(cns_de_df$Gene == "AT1G02980"),])
+View(merged_df[which(merged_df$Gene == "AT1G02980"),])
+
+#are DE gene overrep in CNS loss / Gain
+#Num_cns_gain<tab>Num_cns_loss<tab>Num_no_change
+#Num_cns_gain_DE<tab>Num_cns_loss_DE<tab>Num_no_change_DE
+#Expected = 
+#prop_cns_gain
+
+cns_gain <- nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Gain",])
+cns_loss <- nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Loss",])
+cns_noch <- nrow(cns_de_df[cns_de_df$CNS_CT == "No_Change",])
+cns_gain_de <- nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Gain"
+                              & ( cns_de_df$Regulation == "Up" | cns_de_df$Regulation == "Down" ),])
+cns_loss_de <- nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Loss"
+                              & ( cns_de_df$Regulation == "Up" | cns_de_df$Regulation == "Down" ),])
+cns_noch_de <- nrow(cns_de_df[cns_de_df$CNS_CT == "No_Change"
+                              & ( cns_de_df$Regulation == "Up" | cns_de_df$Regulation == "Down" ),])
+gene_total <- (cns_gain + cns_loss + cns_noch)
+all_gene = nrow(cns_exp_table)
+de_total = nrow( cns_de_df[cns_de_df$Regulation == "Up" | cns_de_df$Regulation == "Down" ,])
+expected_vect <- c(cns_gain/gene_total, cns_loss/gene_total, cns_noch/gene_total)
+observed_vect <- c(cns_gain_de/cns_gain,cns_loss_de/cns_loss,cns_noch_de/cns_noch)
+#
+fisher_mat = rbind( c(cns_gain_de,cns_loss_de,cns_noch_de),c((cns_gain - cns_gain_de),(cns_loss - cns_loss_de), (cns_noch - cns_noch_de)))
+
+fisher_mat = rbind( c(cns_gain_de,(de_total - cns_gain_de)), c((cns_gain - cns_gain_de),(all_gene - de_total - cns_gain + (cns_gain_de))))
+#       Gains  Not_gains
+#DE
+#not_DE
+?fisher.test
+tmp <- fisher.test(fisher_mat, logp)
+
+#       CNS_Gain CNS_Loss  No_Change
+#DE     
+#Not_DE
+
+phyper(62,1998,5260-1998,131)
+#pop size : 5260
+#sample size : 131
+#Number of items in the pop that are classified as successes : 1998
+#Number of items in the sample that are classified as successes : 62    
+
+#expected sanity check:     
+#phyper(de_total*(cns_gain/all_gene), de_total, (all_gene-de_total), cns_gain, lower.tail = F)
+#expected gains: > de_total*(cns_gain/all_gene)
+#[1] 1102.387
+#observed 1529
+fisher_mat
+
+#Are DE genes overrep in CNS_Gains
+phyper(cns_gain_de, de_total, (all_gene-de_total), cns_gain, lower.tail = F)
+#[1] 1.421578e-44
+#***lower.tail = F, therefore OVERREP of gain_de in gain class
+
+#Are DE genes overrep in CNS_Losses
+phyper(cns_loss_de, de_total, (all_gene-de_total), cns_loss, lower.tail = F)
+#[1] 3.502587e-38
+#Are DE genes overrep in No_Change?
+phyper(cns_noch_de, de_total, (all_gene-de_total), cns_noch, lower.tail = T)
+#[1] 9.682371e-84
+#***lower.tail = T, therefore UNDERREP of noch_de in noch class
+
+#ayooo Genes that gain and lose CNS are enriched for differentially expressed genes
+
+#lets test gains for overrep in upreg
+#test losses for overrep in downreg
+up_total = nrow( cns_de_df[cns_de_df$Regulation == "Up",])
+down_total = nrow( cns_de_df[cns_de_df$Regulation == "Down",])
+
+cns_gain_up = nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Gain"
+                              & ( cns_de_df$Regulation == "Up" ),])
+cns_gain_down = nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Gain"
+                              & ( cns_de_df$Regulation == "Down" ),])
+
+cns_loss_up = nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Loss"
+                              & ( cns_de_df$Regulation == "Up" ),])
+cns_loss_down = nrow(cns_de_df[cns_de_df$CNS_CT == "CNS_Loss"
+                              & ( cns_de_df$Regulation == "Down" ),])
+
+cns_noch_up = nrow(cns_de_df[cns_de_df$CNS_CT == "No_Change"
+                              & ( cns_de_df$Regulation == "Up" ),])
+cns_noch_down = nrow(cns_de_df[cns_de_df$CNS_CT == "No_Change"
+                              & ( cns_de_df$Regulation == "Down" ),])
+
+#This is so pretty
+#> cns_gain_up
+#[1] 1081
+#> cns_gain_down
+#[1] 448
+#> cns_loss_up
+#[1] 198
+#> cns_loss_down
+#[1] 813
+#> cns_noch_up
+#[1] 1619
+#> cns_noch_down
+#[1] 2526
+
+
+
+up_total
+gene_total
+#Are up regulated genes overrep in CNS gains
+phyper(cns_gain_up, up_total, (all_gene-up_total), cns_gain, lower.tail = F)
+#[1] 1.30006e-165
+#Are up regulated genes overrep in CNS losses
+phyper(cns_loss_up, up_total, (all_gene-up_total), cns_loss, lower.tail = T)
+#[1] 5.41305e-11
+#*** lower.tail = T, UNDERREP of UPregulated genes in CNS losses
+#> 0.05^9       bonferroni though doesn't hold, did 9 tests here
+#[1] 1.953125e-12
+
+#Are up regulated genes overrep in No_Change
+phyper(cns_noch_up, up_total, (all_gene-up_total), cns_noch, lower.tail = T)
+#[1] 8.415018e-85
+
+
+#Are down regulated genes overrep in CNS gains
+phyper(cns_gain_down, down_total, (all_gene-down_total), cns_gain, lower.tail = T)
+#[1] 1.486378e-16
+#*** lower.tail = T, UNDERREP of DOWNregulated genes in CNS Gains
+
+#Are down regulated genes overrep in CNS losses
+phyper(cns_loss_down, down_total, (all_gene-down_total), cns_loss, lower.tail = F)
+#[1] 1.414288e-95
+#Are down regulated genes overrep in No_Change
+phyper(cns_noch_down, down_total, (all_gene-down_total), cns_noch, lower.tail = T)
+#[1] 4.461761e-16
+
+
+#get gene lists for go enrichment
+cns_gain_up_list = as.character(cns_de_df[cns_de_df$CNS_CT == "CNS_Gain"
+                              & ( cns_de_df$Regulation == "Up" ),"Gene"])
+write.table(cns_gain_up_list,file = "/Users/alanyocca/Documents/01_athal_cns/tmp_cns_gain_u_list.txt", row.names = F, col.names = F, quote = F)
+
+
+#
+?fisher.test
+sum(dhyper(118:1525, 4801, 62916 - 4801, 1525))
+
+phyper(208, 11555, (27000-11555), 2088)
+phyper(29, 11555, (27000-11555), 247)
+phyper(118, 4815, (62916-4815), 1524, lower.tail = F)
+
+phyper(241,1333,(11555 - 1333), 2417)
+phyper(765,3703,(11555 - 3703), 2417)
+
+
+
+
+```
+
+
+Want to see if CNS count correlated with expression in Col-0,
+or if CNS association predisposes to higher expression (violin plot of CNS gene vs. none)
+- what dependencies to run... do any of the above have FPKM??
+- cns_exp_table (ran cleanup block for this also)
+```{r}
+colnames(cns_exp_table)
+# [1] "Gene"                 "Ecotype_Gene"         "CNS_Count"            "Ka_Ks"               
+# [5] "TAIR_CNS_Count"       "CNS_Change"           "Ecotype"              "TAIR_Coverage"       
+# [9] "TAIR_FPKM"            "TAIR_TPM"             "TAIR_Coverage2"       "TAIR_FPKM2"          
+#[13] "TAIR_TPM2"            "TAIR_sum"             "Ecotype_Coverage"     "Ecotype_FPKM"        
+#[17] "Ecotype_TPM"          "Ecotype_Coverage2"    "Ecotype_FPKM2"        "Ecotype_TPM2"        
+#[21] "Ecotype_sum"          "Tag"                  "TAIR_FPKM_avg"        "Ecotype_FPKM_avg"    
+#[25] "TAIR_FPKM_log_exp"    "Ecotype_FPKM_log_exp" "Exp_diff"             "TAIR_TPM_avg"        
+#[29] "Ecotype_TPM_avg"      "TAIR_TPM_log_exp"     "Ecotype_TPM_log_exp" 
+
+cns_exp_corr = cns_exp_table %>% 
+  ggplot(aes(x=CNS_Change, y = Exp_diff)) +
+  geom_point(alpha = 0.1) +
+  ylim(0,2000)
+cns_exp_corr
+#
+colnames(cns_de_df)
+# [1] "Gene"                 "LFC"                  "Regulation"           "Change"              
+# [5] "Ecotype_Gene"         "CNS_Count"            "Ka_Ks"                "TAIR_CNS_Count"      
+# [9] "CNS_Change"           "Ecotype"              "TAIR_Coverage"        "TAIR_FPKM"           
+#[13] "TAIR_TPM"             "TAIR_Coverage2"       "TAIR_FPKM2"           "TAIR_TPM2"           
+#[17] "TAIR_sum"             "Ecotype_Coverage"     "Ecotype_FPKM"         "Ecotype_TPM"         
+#[21] "Ecotype_Coverage2"    "Ecotype_FPKM2"        "Ecotype_TPM2"         "Ecotype_sum"         
+#[25] "Tag"                  "TAIR_FPKM_avg"        "Ecotype_FPKM_avg"     "TAIR_FPKM_log_exp"   
+#[29] "Ecotype_FPKM_log_exp" "Exp_diff"             "TAIR_TPM_avg"         "Ecotype_TPM_avg"     
+#[33] "TAIR_TPM_log_exp"     "Ecotype_TPM_log_exp"  "CNS_CT"
+head(cns_de_df$Regulation)
+#levels: Down No_Change Up
+
+cns_de_df_new = cns_de_df %>%
+  mutate(FPKM_diff = Ecotype_FPKM - TAIR_FPKM) %>% 
+  mutate(FPKM_fold_change = ifelse(TAIR_FPKM > 0, Ecotype_FPKM/TAIR_FPKM,  Ecotype_FPKM))
+
+cns_exp_corr = cns_de_df_new %>% 
+  ggplot(aes(x=CNS_Change, y = FPKM_fold_change, colour = Regulation)) +
+  geom_point(alpha = 0.5) +
+  ylim(0,5)
+cns_exp_corr
+
+
+```
+
+Sanity checks:
+```{r}
+#need cns_de_df_new
+View(cns_de_df_new[which(cns_de_df_new$Gene == "AT1G01225" &
+                      cns_de_df_new$Ecotype == "SRR1945916_bwa_alt_3_masked"),])
+
+odd_balls = cns_de_df_new[which(cns_de_df_new$FPKM_fold_change < 1 &
+                                  cns_de_df_new$Regulation == "Up"),]
+View(odd_balls)
+
+```
+
+
+
+
+
+

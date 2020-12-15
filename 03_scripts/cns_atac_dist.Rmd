@@ -1,0 +1,905 @@
+---
+title: "cns_atac_dist"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+
+CNS atac distributions,
+just take data frame on length of cnss and atac peaks and plot
+should we do accession specific cnss? yea, can just take from the two bed files, just loading in bed files
+
+```{r}
+
+rm(list=ls(all=TRUE))
+#setwd("/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line")
+library(tidyverse)
+
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/tmp_line"
+file.names.missing <- dir(path.missing, pattern="missing.txt")
+
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F)
+})
+
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+
+#hmmm have a lot of bed files, how to best get at it? use that conversion table, each figure will be atac vs bed, but with the 3 diff beds so panel of four figures, yea, lets just start on one, then do loop saving to different thing
+
+#what will we loop through, since conversion has a lot of dummy info, does everyone with a genome path matter?
+#Alans-MacBook-Pro:01_data alanyocca$ grep -c "mnt" acc_srr_conv_atac.txt 
+#20
+#no thats too many
+#one of them is tair10, one is listed with nope after it,
+#loop through this file, the first column, first thing is check for existence of all necessary files,
+#if not there, next loop
+
+#list of required files:
+#Arab bed file for atac peaks
+#SRR unfiltered
+#SRR filtered
+#SRR mcscanx
+
+#just working on for now: 
+#that read in nicely
+arab_bed <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/Arabidopsis_Bd0-37379408_atac_peaks_sort.xls")
+srr_unfil <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/SRR1945811_bwa_alt_3_masked_sort.bed")
+srr_fil <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/SRR1945811_bwa_alt_3_masked_60_bs_chr_mi_sort.bed")
+srr_mx <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/SRR1945811_bwa_alt_3_masked_60_bs_chr_mi_mx_sort.bed")
+
+#for each add vector to the end that is abs(3-2)
+arab_bed_vect <- arab_bed %>%
+  mutate(Length=abs(arab_bed[,3] - arab_bed[,2]))
+srr_unfil_vect <- srr_unfil %>%
+  mutate(Length=abs(srr_unfil[,3] - srr_unfil[,2]))
+srr_fil_vect <- srr_fil %>%
+  abs(srr_mx[,3] - srr_mx[,2])
+srr_mx_vect <- srr_mx %>%
+  mutate(Length=abs(srr_mx[,3] - srr_mx[,2]))
+
+#hmm think best would be to just get these columns into 1 df
+new_df <- data.frame(ATAC=abs(arab_bed[,3] - arab_bed[,2]), Nonfil=abs(srr_unfil[,3] - srr_unfil[,2]), Filtered=abs(srr_fil[,3] - srr_fil[,2]),MX=abs(srr_mx[,3] - srr_mx[,2]), )
+
+new_df <- merge(ATAC=abs(arab_bed[,3] - arab_bed[,2]),Nonfil=(arab_bed[,3] - arab_bed[,2]), all = T)
+
+new_df <- cbind((arab_bed[,3]),(srr_unfil[,2]))
+?cbind.fill
+?merge
+
+?data.frame
+library(ggplot2)
+
+#just make them all separate and use ggarrange? think about that
+
+arab_plot <- arab_bed_vect %>%
+  ggplot(aes(x=arab_bed_vect$Length, )) +
+#  geom_histogram() +
+  geom_density(fill="#FF6666") +
+  geom_vline(xintercept = mean(arab_bed_vect$Length)) +
+  geom_text(aes(x=mean(arab_bed_vect$Length), label=paste0(round(mean(arab_bed_vect$Length), digits=2)," = Mean"), y=0.75*max(density(arab_bed_vect$Length)$y)), angle=90, vjust=1.2, size=3) +
+  geom_vline(xintercept = median(arab_bed_vect$Length)) +
+  geom_text(aes(x=median(arab_bed_vect$Length), label=paste0(round(median(arab_bed_vect$Length), digits=2)," = Median"), y=0.75*max(density(arab_bed_vect$Length)$y)), angle=90, vjust=-1, size=3) +
+  labs(x="Length", y="Density", title ="ATAC Peaks")
+
+
+?mean
+#which.max(density(arab_bed_vect$Length)$y)
+#max(density(arab_bed_vect$Length)$y)
+
+arab_plot
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/tmp_hist.pdf", width = 12, height = 6)
+  plot(arab_plot)
+  dev.off()
+  
+#alrighty, now get all four into a grid, then loop through them all, should finish this tonight
+
+srr_fil_plot <- srr_fil_vect %>%
+  ggplot(aes(x=srr_fil_vect$Length, )) +
+#  geom_histogram() +
+  geom_density(fill="#FF6666") +
+  geom_vline(xintercept = mean(srr_fil_vect$Length)) +
+  geom_text(aes(x=mean(srr_fil_vect$Length), label=paste0(round(mean(srr_fil_vect$Length), digits=2)," = Mean"), y=0.75*max(density(srr_fil_vect$Length)$y)), angle=90, vjust=1.2, size=3) +
+  geom_vline(xintercept = median(srr_fil_vect$Length)) +
+  geom_text(aes(x=median(srr_fil_vect$Length), label=paste0(round(median(srr_fil_vect$Length), digits=2)," = Median"), y=0.75*max(density(srr_fil_vect$Length)$y)), angle=90, vjust=-1, size=3) +
+  labs(x="Length", y="Density", title ="Filtered BLAST Annotation")
+
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/tmp_hist_fil.pdf", width = 12, height = 6)
+  plot(srr_fil_plot)
+  dev.off()
+
+#think I am just going to drop unfiltered but check real quick anyway  
+srr_unfil_plot <- srr_unfil_vect %>%
+  ggplot(aes(x=srr_unfil_vect$Length, )) +
+#  geom_histogram() +
+  geom_density(fill="#FF6666") +
+  geom_vline(xintercept = mean(srr_unfil_vect$Length)) +
+  geom_text(aes(x=mean(srr_unfil_vect$Length), label=paste0(round(mean(srr_unfil_vect$Length), digits=2)," = Mean"), y=0.75*max(density(srr_unfil_vect$Length)$y)), angle=90, vjust=1.2, size=3) +
+  geom_vline(xintercept = median(srr_unfil_vect$Length)) +
+  geom_text(aes(x=median(srr_unfil_vect$Length), label=paste0(round(median(srr_unfil_vect$Length), digits=2)," = Median"), y=0.75*max(density(srr_unfil_vect$Length)$y)), angle=90, vjust=-1, size=3)
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/tmp_hist_unfil.pdf", width = 12, height = 6)
+  plot(srr_unfil_plot)
+  dev.off()
+srr_unfil_plot
+#not even getting it to render, check what the values are, don't need the plot
+summary(srr_unfil_vect$Length)
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 12.00   12.00   13.00   13.81   14.00 1985.00 
+#compared to filtered:
+summary(srr_fil_vect$Length)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  12.00   14.00   23.00   32.26   39.00 1985.00 
+# I like this much better
+#whuddubout atac peaks
+summary(arab_bed_vect$Length)
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  137.0   187.0   266.0   307.6   376.0  2112.0 
+#This tells me we should be asking for 50% 0verlap of cns with atac peaks
+summary(srr_mx_vect$Length)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  12.00   19.00   28.00   36.41   43.50 1985.00 
+#features even longer on average overall distribution doesn't seem to change much
+
+srr_mx_plot <- srr_mx_vect %>%
+  ggplot(aes(x=srr_mx_vect$Length, )) +
+#  geom_histogram() +
+  geom_density(fill="#FF6666") +
+  geom_vline(xintercept = mean(srr_mx_vect$Length)) +
+  geom_text(aes(x=mean(srr_mx_vect$Length), label=paste0(round(mean(srr_mx_vect$Length), digits=2)," = Mean"), y=0.75*max(density(srr_mx_vect$Length)$y)), angle=90, vjust=1.2, size=3) +
+  geom_vline(xintercept = median(srr_mx_vect$Length)) +
+  geom_text(aes(x=median(srr_mx_vect$Length), label=paste0(round(median(srr_mx_vect$Length), digits=2)," = Median"), y=0.75*max(density(srr_mx_vect$Length)$y)), angle=90, vjust=-1, size=3) +
+  labs(x="Length", y="Density", title ="Collinearity Annotation")
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/tmp_hist_mx.pdf", width = 12, height = 6)
+  plot(srr_mx_plot)
+  dev.off()
+
+
+#why did I want to make these panels again? which annotation set should I be using for atac overlaps, well can get good idea from this one case that trend will hold, is it lazy to not check the others? probably, o whale
+
+#still would be nice to put them all in a panel, fix axis labels
+?grid.arrange
+install.packages(gridExtra)
+library(gridExtra)
+grid <- grid.arrange(arab_plot,srr_fil_plot,srr_mx_plot)
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/tmp_grid.pdf", width = 12, height = 6)
+  grid.arrange(arab_plot,srr_fil_plot,srr_mx_plot)
+  dev.off()
+
+```
+
+
+Check distribution of permutations:
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+
+per_mx <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/SRR1945446_bwa_alt_3_masked_60_bs_chr_mi_mx_sort.bed_overlap_count.txt")
+
+per <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/SRR1945446_bwa_alt_3_masked_60_bs_chr_mi_mx_sort.bed_overlap_count.txt")
+
+per_mx_plot <- per_mx %>%
+  ggplot(aes(x=per_mx$V3, )) +
+#  geom_histogram() +
+  geom_density(fill="#FF6666") +
+  geom_vline(xintercept = mean(per_mx$V3)) +
+  geom_text(aes(x=mean(per_mx$V3), label=paste0(round(mean(per_mx$V3), digits=2)," = Mean"), y=0.75*max(density(per_mx$V3)$y)), angle=90, vjust=1.2, size=3) +
+  geom_vline(xintercept = median(per_mx$V3)) +
+  geom_text(aes(x=median(per_mx$V3), label=paste0(round(median(per_mx$V3), digits=2)," = Median"), y=0.75*max(density(per_mx$V3)$y)), angle=90, vjust=-1, size=3) +
+  labs(x="Overlap Count", y="Density", title ="Random distribution, collinearity filtered")
+
+per_plot <- per %>%
+  ggplot(aes(x=per$V3, )) +
+#  geom_histogram() +
+  geom_density(fill="#FF6666") +
+  geom_vline(xintercept = mean(per$V3)) +
+  geom_text(aes(x=mean(per$V3), label=paste0(round(mean(per$V3), digits=2)," = Mean"), y=0.75*max(density(per$V3)$y)), angle=90, vjust=1.2, size=3) +
+  geom_vline(xintercept = median(per$V3)) +
+  geom_text(aes(x=median(per$V3), label=paste0(round(median(per$V3), digits=2)," = Median"), y=0.75*max(density(per$V3)$y)), angle=90, vjust=-1, size=3) +
+  labs(x="Overlap Count", y="Density", title ="Random distribution, blast filtered")
+
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/random_dist.pdf", width = 12, height = 6)
+  plot(per_mx_plot)
+  dev.off()
+
+#normality test
+?shapiro.test
+shapiro.test(per$V3)
+#> shapiro.test(per$V3)
+#
+#	Shapiro-Wilk normality test
+#
+#data:  per$V3
+#W = 0.99846, p-value = 0.5282
+
+
+dev.off()
+#qqplot
+per_norm <- qqline(per$V3)
+#yea thats pretty convincing
+
+#normality test
+#?shapiro.test
+shapiro.test(per_mx$V3)
+#> shapiro.test(per$V3)
+#
+#	Shapiro-Wilk normality test
+#
+#data:  per$V3
+#W = 0.99846, p-value = 0.5282
+#interesting, same value
+
+dev.off()
+#qqplot
+per_mx_norm <- qqnorm(per_mx$V3)
+per_mx_norm <- qqline(per_mx$V3)
+#yea thats pretty convincing
+
+#p-value
+?qnorm
+pnorm(8252, mean = mean(per$V3), sd = sd(per$V3),lower.tail = F)
+
+
+binom
+```
+
+
+owee presentation in 45 minutes, can I get me a dual density plot showing random vs observed percentage of cns that overlap at least 50% of an atac peak
+
+data needed: just list of percents, gotta do quick don't need to be super reproducible so go excel for data:
+
+```{r}
+
+vect <- c(0.119045722,0.125145379,0.174463349,0.184555517,0.115572843,0.066107014,0.084780079,0.124691181,0.141675053,0.174338384,0.173895729,0.215508175,0.0758949,0.167904028,0.15252617)
+
+vect_moved <- c(0.134660422,0.158924205,0.16129032,0.221105528,0.141557128,0.052419355,0.083608361,0.15437788,0.14739229,0.185530922,0.228960396,0.278481013,0.051660517,0.219334719,0.159901599)
+
+density(vect)
+
+library(ggplot2)
+library(tidyverse)
+
+df <- data.frame("All"=vect, "Moved"=vect_moved)
+df_new <- df %>%
+  gather()
+
+per_plot <- df_new %>%
+  ggplot(aes(x=df_new$value, color=df_new$key)) +
+  geom_density() +
+  labs(x="Proportion Overlap", y="Density", title ="Distribution of Proportion CNS vs. ATAC Overlap")
+per_plot
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/moved_vs_all_atac_overlap.png", width = 600, height = 300)
+  plot(per_plot)
+  dev.off()
+
+```
+
+
+
+Permutatation tests for all accessions, four different methods:
+- all CNS perm ATAC
+- all CNS stat ATAC
+- moved CNS perm ATAC
+- moved CNS stat ATAC
+
+```{r}
+library(tidyverse)
+#shapiro.test(per$V3)
+#per_mx_norm <- qqnorm(per_mx$V3)
+#pnorm(8252, mean = mean(per$V3), sd = sd(per$V3),lower.tail = F)
+
+#make list of files based on regex
+#MAKE SURE NO TRAILING FORWARD SLASH
+path = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/04_perm/"
+
+##hmm maybe change this block do 4 separate loops, well could make way to name the loaded list of files and have some if statements, fuck it, will probs help later lets do it
+
+file.names <- dir(path, pattern = ".*overlap.*", full.names = T)
+loaded_list_of_files <- lapply(file.names,function(i){
+  read.table(file = i,stringsAsFactors = F,fill = T)
+})
+
+#need to name list of files
+list_file_names <- gsub('/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/04_perm/','',file.names)
+#print(file.names)
+
+names(loaded_list_of_files) <- list_file_names
+#?grepl
+#names(loaded_list_of_files)[32]
+
+
+perm_table <- data.frame("Sra ID"=character(),"aCpA mean"=integer(),"aCpA stdev"=integer(),"aCpA enrichment"=integer(), "aCpA hits"=integer(),"aCsA mean"=integer(),"aCsA stdev"=integer(),"aCsA enrichment"=integer(), "aCsA hits"=integer(),"mCpA mean"=integer(),"mCpA stdev"=integer(),"mCpA enrichment"=integer(), "mCpA hits"=integer(),"mCsA mean"=integer(),"mCsA stdev"=integer(),"mCsA enrichment"=integer(), "mCsA hits"=integer())
+
+#?grep()
+#names(loaded_list_of_files[i])[1]
+
+#for (i in 1:length(loaded_list_of_files)) {
+#  avg <- mean(loaded_list_of_files[[i]]$V3)
+#  stdev <- sd(loaded_list_of_files[[i]]$V3)
+# sw_test <- shapiro.test(loaded_list_of_files[[i]]$V3)
+#  enrichment <- ""
+#  if (loaded_list_of_files[[i]][1,4] >= avg) {
+#    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = F)
+#  } else {
+#    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = T)
+#  }
+#  srr <- gsub('_.*','',names(loaded_list_of_files)[i])
+#  if (grepl("SRR.*all_perm.*count.txt",names(loaded_list_of_files)[i])){
+#    print("aCpA")
+#    acpa_table <- data.frame("Sra ID"=srr,"aCpA mean"= avg, "aCpA stdev"= stdev, "aCpA enrichment"= enrichment,"aCpA hits"= loaded_list_of_files[[i]][1,4])
+#    perm_table <- merge.data.frame(perm_table,acpa_table, all = T )
+#    #,"Hits"= loaded_list_of_files[[i]][1,2]
+#  } else if (grepl("SRR.*_all_stat_.*",names(loaded_list_of_files)[i])){
+#    print("aCsA")
+#    acsa_table <- data.frame("Sra ID"=srr,"aCsA mean"= avg, "aCsA stdev"= stdev, "aCsA enrichment"= enrichment,"aCsA hits"= loaded_list_of_files[[i]][1,4])
+#    perm_table <- merge.data.frame(perm_table,acsa_table, all = T )
+#  } else if (grepl("SRR.*_moved_perm_.*count.txt",names(loaded_list_of_files)[i])){
+#    print("mCpA")
+#    mcpa_table <- data.frame("Sra ID"=srr,"mCpA mean"= avg, "mCpA stdev"= stdev, "mCpA enrichment"= enrichment,"mCpA hits"= loaded_list_of_files[[i]][1,4])
+#    perm_table <- merge.data.frame(perm_table,mcpa_table, all = T )
+#  } else if (grepl("SRR.*moved_stat_.*",names(loaded_list_of_files)[i])){
+#    print("mCsA")
+#    mcsa_table <- data.frame("Sra ID"=srr,"mCsA mean"= avg, "mCsA stdev"= stdev, "mCsA enrichment"= enrichment,"mCsA hits"= loaded_list_of_files[[i]][1,4])
+#    perm_table <- merge.data.frame(perm_table,mcsa_table, all = T)
+#  }
+#}
+
+#collapse everything, thank you stack overflow
+#perm_table <- aggregate(perm_table[-1], list(perm_table$Sra.ID), FUN = mean, na.rm = TRUE)
+
+##THE WAY I CALCULATED HITS WAS WRONG, THIS IS HOW MANY EXIST, NOT THE OVERLAP I OBSERVE, NEED TO EITHER GET THAT FROM ANOTHER FILE OR ADD TO THE ONES IM LOOPING THROUGH, SHOULD BE IN OVERLAP DIRECTORY
+##11-07-18, fixed it, added fourth column with appropriate atac overlaps
+
+##12-03-18, finally got around to rerunning so Im 100% confident these are the numbers
+
+#save the file
+#write.table(perm_table,file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/permutation_enrichments.txt",row.names = F, col.names = T, quote = F,sep = ",")
+
+#keep it that way saving it, but this data is not tidy therefore tough when plotting
+#tidy data, SRR mean std enrichment actual overlap
+
+#try to remake tidy:
+perm_table_tidy <- data.frame("Sra ID"=character(),"mean"=integer(),"stdev"=integer(),"enrichment"=integer(), "hits"=integer(),"perm_type"=character())
+
+for (i in 1:length(loaded_list_of_files)) {
+  avg <- mean(loaded_list_of_files[[i]]$V3)
+  stdev <- sd(loaded_list_of_files[[i]]$V3)
+# sw_test <- shapiro.test(loaded_list_of_files[[i]]$V3)
+  enrichment <- ""
+  if (loaded_list_of_files[[i]][1,4] >= avg) {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = F)
+  } else {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = T)
+  }
+  srr_tmp <- gsub('_.*','',names(loaded_list_of_files)[i])
+  srr <- gsub('/','',srr_tmp)
+  if (grepl("SRR.*all_perm.*count.txt",names(loaded_list_of_files)[i])){
+    print("aCpA")
+    type_permutation <- "aCpA"
+    acpa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,acpa_table, all = T )
+    #,"Hits"= loaded_list_of_files[[i]][1,2]
+  } else if (grepl("SRR.*_all_stat_.*",names(loaded_list_of_files)[i])){
+    print("aCsA")
+    type_permutation <- "aCsA"
+    acsa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,acsa_table, all = T )
+  } else if (grepl("SRR.*_moved_perm_.*count.txt",names(loaded_list_of_files)[i])){
+    print("mCpA")
+    type_permutation <- "mCpA"
+    mcpa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,mcpa_table, all = T )
+  } else if (grepl("SRR.*moved_stat_.*",names(loaded_list_of_files)[i])){
+    print("mCsA")
+    type_permutation <- "mCsA"
+    mcsa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,mcsa_table, all = T)
+  }
+  #cleanup
+  rm(avg,enrichment,srr,stdev,type_permutation)
+}
+
+#rerun without col-0:
+#!grepl("5757", file.names)
+file.names.sans.col <- file.names[!grepl("5757", file.names)] 
+loaded_list_of_files <- lapply(file.names.sans.col,function(i){
+  read.table(file = i,stringsAsFactors = F,fill = T)
+})
+
+#need to name list of files
+list_file_names <- gsub('/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/01_data/04_perm/','',file.names.sans.col)
+#print(file.names)
+
+names(loaded_list_of_files) <- list_file_names
+#?grepl
+#names(loaded_list_of_files)[32]
+
+perm_table_tidy_sans_col <- data.frame("Sra ID"=character(),"mean"=integer(),"stdev"=integer(),"enrichment"=integer(), "hits"=integer(),"perm_type"=character())
+
+for (i in 1:length(loaded_list_of_files)) {
+  avg <- mean(loaded_list_of_files[[i]]$V3)
+  stdev <- sd(loaded_list_of_files[[i]]$V3)
+# sw_test <- shapiro.test(loaded_list_of_files[[i]]$V3)
+  enrichment <- ""
+  if (loaded_list_of_files[[i]][1,4] >= avg) {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = F)
+  } else {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = T)
+  }
+  srr_tmp <- gsub('_.*','',names(loaded_list_of_files)[i])
+  srr <- gsub('/','',srr_tmp)
+  if (grepl("SRR.*all_perm.*count.txt",names(loaded_list_of_files)[i])){
+    print("aCpA")
+    type_permutation <- "aCpA"
+    acpa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy_sans_col <- merge.data.frame(perm_table_tidy_sans_col,acpa_table, all = T )
+    #,"Hits"= loaded_list_of_files[[i]][1,2]
+  } else if (grepl("SRR.*_all_stat_.*",names(loaded_list_of_files)[i])){
+    print("aCsA")
+    type_permutation <- "aCsA"
+    acsa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy_sans_col <- merge.data.frame(perm_table_tidy_sans_col,acsa_table, all = T )
+  } else if (grepl("SRR.*_moved_perm_.*count.txt",names(loaded_list_of_files)[i])){
+    print("mCpA")
+    type_permutation <- "mCpA"
+    mcpa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,mcpa_table, all = T )
+  } else if (grepl("SRR.*moved_stat_.*",names(loaded_list_of_files)[i])){
+    print("mCsA")
+    type_permutation <- "mCsA"
+    mcsa_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,mcsa_table, all = T)
+  }
+  #cleanup
+  rm(avg,enrichment,srr,stdev,type_permutation)
+}
+
+
+
+
+```
+
+11-29-18:
+now I have permutations:
+- all cns stat atac
+  SRR1945818_bwa_alt_3_pbj_2_rename_60_bs_chr_mi_mx_sort_Arabidopsis_Bur_133527-36724702_overlap.txt_overlap_count_stat_atac.txt
+
+- all cns perm atac
+  SRR1945818_bwa_alt_3_pbj_2_rename_60_bs_chr_mi_mx_sort_Arabidopsis_Bur_133527-36724702_overlap.txt_overlap_count.txt
+
+- moved cns stat atac
+  SRR1945818_bwa_alt_3_pbj_2_rename_moved_overlap.txt_overlap_count_stat_atac.txt
+  
+- moved cns perm atac
+  SRR1945818_bwa_alt_3_pbj_2_rename_moved_overlap.txt_overlap_count.txt
+  
+do them all
+
+what do input files look like, just slightly different than above.. maybe just run above code, thought was going to do something different but I think not
+
+just need to load in the new files
+
+
+12-03-18
+make collapsed permutation table, should just have to run above code block
+
+below, lets make some smaller tables / graphs
+
+Moved enrichment violin plots
+```{r}
+#dependent to run above code to get object called "perm_table"
+#planned analyses:
+#- histogram of enrichment for all four types?? eh, lets make one figure showing stat atac is more conservative,
+#- for that lets do overlapping density plot?? violin plots? lets try both
+#- summary table with range of enrichment, 
+#   fold increase
+#   average increase
+#   idea is to look at the data from multiple angles and get an idea of what is the significant overlap between CNS and atac peaks
+#- want to see if moved CNS are just as likely as all CNS to sig overlap with open chromatin
+#   tricky because we have less power as the number decreases, but need to empircally prove this rather than have it as a hunch, I have no real data to back up they don't just overlap less
+library(ggplot2)
+library(tidyverse)
+
+#Graphs that didn't go so well:
+#overlapping density plot of enrichment
+#any plotting of all atac enrichment since its zeros for all of them
+#perm_table_tidy_moved <- perm_table_tidy[grep("m", perm_table_tidy$perm_type),]
+
+perm_enrich_moved_violin <- perm_table_tidy[grep("m", perm_table_tidy$perm_type),] %>%
+  ggplot(aes(y=perm_table_tidy[grep("m", perm_table_tidy$perm_type),]$enrichment, x=perm_table_tidy[grep("m", perm_table_tidy$perm_type),]$perm_type,fill=perm_table_tidy[grep("m", perm_table_tidy$perm_type),]$perm_type)) +
+  geom_violin(color=NA) +
+  geom_dotplot(binaxis = 'y', stackdir = 'center', dotsize = 1, binwidth=0.001)
+
+perm_enrich_moved_violin
+
+##Save funny example:
+#png(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/tmp_funny_example.png")
+#    plot(perm_enrich_hist)
+#    dev.off()
+
+##Save full zoomed out p-value distribution overlap
+png(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/perm_enrich_moved_violin.png")
+    plot(perm_enrich_moved_violin)
+    dev.off()
+    
+#zoomed in version
+perm_enrich_moved_violin_zoom <- perm_table_tidy[grep("m", perm_table_tidy$perm_type),] %>%
+  ggplot(aes(y=perm_table_tidy[grep("m", perm_table_tidy$perm_type),]$enrichment, x=perm_table_tidy[grep("m", perm_table_tidy$perm_type),]$perm_type,fill=perm_table_tidy[grep("m", perm_table_tidy$perm_type),]$perm_type)) +
+  geom_violin(color=NA) +
+  geom_dotplot(binaxis = 'y', stackdir = 'center', dotsize = 1, binwidth=0.001) +
+  ylim(0,0.1)
+
+perm_enrich_moved_violin_zoom
+##Save zoomed version
+png(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/03_hist/perm_enrich_moved_violin_zoom.png")
+    plot(perm_enrich_moved_violin_zoom)
+    dev.off()
+
+
+```
+
+Decided to split up code blocks for graphs, easier to search through
+
+
+Summary tables
+```{r}
+library(ggplot2)
+library(tidyverse)
+
+#- summary table with range of enrichment, 
+#   fold increase
+#   average increase
+#   idea is to look at the data from multiple angles and get an idea of what is the significant overlap between CNS and atac peaks
+
+#hmmm tables... I am not really seeing a difference in perm atac and static atac so just left it as is
+
+#table, comparing permutation types,
+#permutation range (min-max)
+#average fold above mean enrichment, kind of misleading because std matters, ah, hmm
+#average sds from the mean? eh do both
+#average / range percent of mean sd is
+
+perm_type <- unique(perm_table_tidy$perm_type)
+test <- range(perm_table_tidy$enrichment)
+type_comp_sum_table <- data.frame(
+  "Perm Type" = character(),
+  "Enrichment Range" = character(),
+  "Enrichment Mean" = numeric(),
+  "Hit Range" = character(),
+  "Hit Mean" = numeric(),
+  "Fold Range" = character(),
+  "Fold Mean" = numeric()
+)
+
+for (type in perm_type) {
+  e_range <- range(perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$enrichment)
+  e_mean <- mean(perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$mean)
+  hit_range <- range(perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$hits)
+  hit_mean <- mean(perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$hits)
+  fold_range <- range(perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$hits/perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$mean)
+  fold_mean <- mean(perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$hits/perm_table_tidy[grep(type,perm_table_tidy$perm_type),]$mean)
+  #Fix types and what not
+  type <- as.character(type)
+  e_range <- paste(e_range,collapse = " - ")
+  e_mean <- as.numeric(e_mean)
+  hit_range <- paste(hit_range,collapse = " - ")
+  hit_mean <- as.numeric(hit_mean)
+  fold_range <- paste(fold_range, collapse = " - ")
+  fold_mean <- as.numeric(fold_mean)
+  loop_df <- data.frame(
+    "Perm Type" = type,
+    "Enrichment Range" = e_range,
+    "Enrichment Mean" = e_mean,
+    "Hit Range" = hit_range,
+    "Hit Mean" = hit_mean,
+    "Fold Range" = fold_range,
+    "Fold Mean" = fold_mean
+    )
+  type_comp_sum_table <- rbind(type_comp_sum_table, loop_df)
+}
+
+write.table(type_comp_sum_table, file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/perm_type_table.txt", quote = F, row.names = F, sep = ",")
+
+reload enrichment table to view:
+type_comp_sum_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/perm_type_table.txt", sep = ",", header = T)
+
+
+#alrighty, after making this table, it seems there is actually less overlap between moved cns and atac than there is between all cns and atac, what if we dropped the col-0 numbers,
+#drop in perm_table and rerun appending _sans_col to ends of it
+
+#Summary table sans col,
+# Same loop just different output variable, reran permutation table
+
+```
+
+
+reload that final table to look at:
+
+```{r}
+perm_type_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/perm_type_table.txt", sep = ",")
+```
+
+
+test if TAIR10 CNS with ATAC peaks more or less likely to be variable:
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+all_cns <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/cns_length_type.txt", row.names = NULL, header = T, sep = "\t")
+
+#load in table / list of CNS with atac peaks in TAIR10.. hmmm.. did I calculate that? or did I just do against Col-0'?? check tonight
+
+```
+
+03-05-19:
+Rerun more confidence in this run
+
+Permutatation tests for all accessions, four different methods:
+- all CNS perm ATAC
+- all CNS stat ATAC
+- moved CNS perm ATAC
+- moved CNS stat ATAC
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+
+path = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/04_19_Feb/01_data/"
+
+file.names <- dir(path, pattern = ".*atac_bedshuffle.*", full.names = T)
+loaded_list_of_files <- lapply(file.names,function(i){
+  read.table(file = i,stringsAsFactors = F,fill = T)
+})
+
+#need to name list of files
+list_file_names <- gsub(paste0(path,"/+"),'',file.names)
+#print(file.names)
+
+names(loaded_list_of_files) <- list_file_names
+#?grepl
+#names(loaded_list_of_files)[32]
+
+#######
+#subsampling permutatations for posv CNS to see if significance changes
+for (i in 1:length(loaded_list_of_files)) {
+  if (grepl("moved",names(loaded_list_of_files)[i])){
+    #subset the first 100 permutations
+    loaded_list_of_files[[i]] <- loaded_list_of_files[[i]][c(1:100),]
+  }
+}
+######
+
+#perm_table <- data.frame("Sra ID"=character(),"aCsA mean"=integer(),"aCsA stdev"=integer(),"aCsA enrichment"=integer(), "aCsA hits"=integer(),"mCsA mean"=integer(),"mCsA stdev"=integer(),"mCsA enrichment"=integer(), "mCsA hits"=integer())
+
+#try to remake tidy:
+perm_table_tidy <- data.frame("Sra ID"=character(),"mean"=integer(),"stdev"=integer(),"enrichment"=integer(), "hits"=integer(),"perm_type"=character(), "annotations" = integer())
+
+#View(names(loaded_list_of_files))
+
+for (i in 1:length(loaded_list_of_files)) {
+  avg <- mean(loaded_list_of_files[[i]]$V3)
+  stdev <- sd(loaded_list_of_files[[i]]$V3)
+# sw_test <- shapiro.test(loaded_list_of_files[[i]]$V3)
+  enrichment <- ""
+  if (loaded_list_of_files[[i]][1,4] >= avg) {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = F)
+  } else {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = T)
+  }
+  srr_tmp <- gsub('_.*','',names(loaded_list_of_files)[i])
+  srr <- gsub('/','',srr_tmp)
+  annotations <- loaded_list_of_files[[i]][1,2]
+  if (grepl("all",names(loaded_list_of_files)[i])){
+    print("All_CNS")
+    type_permutation <- "All_CNS"
+    all_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation, "annotations" = annotations)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,all_table, all = T )
+    #,"Hits"= loaded_list_of_files[[i]][1,2]
+  } else if (grepl("moved",names(loaded_list_of_files)[i])){
+    print("PosV_CNS")
+    type_permutation <- "PosV_CNS"
+    posv_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation, "annotations" = annotations)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,posv_table, all = T )
+  } 
+  #cleanup
+  rm(avg,enrichment,srr,stdev,type_permutation)
+}
+
+#rerun without col-0:
+#!grepl("5757", file.names)
+file.names.sans.col <- file.names[!grepl("5757", file.names)] 
+loaded_list_of_files <- lapply(file.names.sans.col,function(i){
+  read.table(file = i,stringsAsFactors = F,fill = T)
+})
+
+#need to name list of files
+list_file_names <- gsub(path,'',file.names.sans.col)
+#print(file.names)
+
+names(loaded_list_of_files) <- list_file_names
+#?grepl
+#names(loaded_list_of_files)[32]
+
+#get some values out of perm_table_tidy
+#average fold enrichment for all cns / percent cns overlap average
+perm_table_tidy_all <- perm_table_tidy[perm_table_tidy$perm_type == "All_CNS",]
+perm_table_tidy_all <- perm_table_tidy_all %>%
+  mutate(Percent = hits / annotations) %>%
+  mutate(Fold_enrichment = hits / mean)
+
+avg_per_all <- mean(perm_table_tidy_all$Percent)
+#0.1648647
+avg_fen_all <- mean(perm_table_tidy_all$Fold_enrichment)
+#2.457022
+
+#average fold enrichment for PosV cns / percent cns overlap average
+perm_table_tidy_posv <- perm_table_tidy[perm_table_tidy$perm_type == "PosV_CNS",]
+perm_table_tidy_posv <- perm_table_tidy_posv %>%
+  mutate(Percent = hits / annotations) %>%
+  mutate(Fold_enrichment = hits / mean)
+
+avg_per_posv <- mean(perm_table_tidy_posv$Percent)
+#0.09466063
+avg_fen_posv <- mean(perm_table_tidy_posv$Fold_enrichment)
+#1.394274
+range(perm_table_tidy_posv$enrichment)
+
+```
+
+#checking if the 118 CNS for posv and pav
+#subsampling permutations for moved to see if significance changes
+##nope
+
+check if 118 CNS for posv and pav more or less likely to overlap atac peaks.. hmm have to rerun the permutations in that situation, lets think of what we are setting out to determine:
+- are the 118 CNS more or less likely overlap atac peaks
+- previous results showed no, 
+  - but what about a subset of 118 moved CNS
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+
+path = "/Users/alanyocca/Documents/01_athal_cns/CNS_ATAC_DIST/04_19_Feb/01_data/01_mi_mo/"
+
+file.names <- dir(path, pattern = ".*atac_bedshuffle.*", full.names = T)
+loaded_list_of_files <- lapply(file.names,function(i){
+  read.table(file = i,stringsAsFactors = F,fill = T)
+})
+
+#need to name list of files
+list_file_names <- gsub(paste0(path,"/+"),'',file.names)
+#print(file.names)
+
+names(loaded_list_of_files) <- list_file_names
+#?grepl
+#names(loaded_list_of_files)[32]
+
+#######
+#subsampling permutatations for posv CNS to see if significance changes
+#for (i in 1:length(loaded_list_of_files)) {
+#  if (grepl("moved",names(loaded_list_of_files)[i])){
+#    #subset the first 100 permutations
+#    loaded_list_of_files[[i]] <- loaded_list_of_files[[i]][c(1:100),]
+#  }
+#}
+######
+
+#perm_table <- data.frame("Sra ID"=character(),"aCsA mean"=integer(),"aCsA stdev"=integer(),"aCsA enrichment"=integer(), "aCsA hits"=integer(),"mCsA mean"=integer(),"mCsA stdev"=integer(),"mCsA enrichment"=integer(), "mCsA hits"=integer())
+
+#try to remake tidy:
+perm_table_tidy <- data.frame("Sra ID"=character(),"mean"=integer(),"stdev"=integer(),"enrichment"=integer(), "hits"=integer(),"perm_type"=character(), "annotations" = integer())
+
+#View(names(loaded_list_of_files))
+
+for (i in 1:length(loaded_list_of_files)) {
+  avg <- mean(loaded_list_of_files[[i]]$V3)
+  stdev <- sd(loaded_list_of_files[[i]]$V3)
+# sw_test <- shapiro.test(loaded_list_of_files[[i]]$V3)
+  enrichment <- ""
+  if (loaded_list_of_files[[i]][1,4] >= avg) {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = F)
+  } else {
+    enrichment <- pnorm(loaded_list_of_files[[i]][1,4], mean = avg, sd = stdev, lower.tail = T)
+  }
+  srr_tmp <- gsub('_.*','',names(loaded_list_of_files)[i])
+  srr <- gsub('/','',srr_tmp)
+  annotations <- loaded_list_of_files[[i]][1,2]
+  if (grepl("_mi_",names(loaded_list_of_files)[i])){
+    print("Mi_Mo")
+    type_permutation <- "Mi_Mo"
+    all_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation, "annotations" = annotations)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,all_table, all = T )
+    #,"Hits"= loaded_list_of_files[[i]][1,2]
+  } else if (grepl("mo_sub",names(loaded_list_of_files)[i])){
+    print("Mo_Sub")
+    type_permutation <- "Mo_Sub"
+    posv_table <- data.frame("Sra ID"=srr,"mean"= avg, "stdev"= stdev, "enrichment"= enrichment,"hits"= loaded_list_of_files[[i]][1,4], "perm_type" = type_permutation, "annotations" = annotations)
+    perm_table_tidy <- merge.data.frame(perm_table_tidy,posv_table, all = T )
+  } 
+  #cleanup
+  rm(avg,enrichment,srr,stdev,type_permutation)
+}
+
+#rerun without col-0:
+#!grepl("5757", file.names)
+file.names.sans.col <- file.names[!grepl("5757", file.names)] 
+loaded_list_of_files <- lapply(file.names.sans.col,function(i){
+  read.table(file = i,stringsAsFactors = F,fill = T)
+})
+
+#need to name list of files
+list_file_names <- gsub(path,'',file.names.sans.col)
+#print(file.names)
+
+names(loaded_list_of_files) <- list_file_names
+#?grepl
+#names(loaded_list_of_files)[32]
+
+#get some values out of perm_table_tidy
+#average fold enrichment for all cns / percent cns overlap average
+perm_table_tidy_all <- perm_table_tidy[perm_table_tidy$perm_type == "Mi_Mo" & perm_table_tidy$Sra.ID != "SRR1945757",]
+perm_table_tidy_all <- perm_table_tidy_all %>%
+  mutate(Percent = hits / annotations) %>%
+  mutate(Fold_enrichment = hits / mean)
+
+avg_per_all <- mean(perm_table_tidy_all$Percent)
+#0.1493988
+#0.09936347
+avg_fen_all <- mean(perm_table_tidy_all$Fold_enrichment)
+#1.975007
+#1.465402
+
+#average fold enrichment for PosV cns / percent cns overlap average
+perm_table_tidy_posv <- perm_table_tidy[perm_table_tidy$perm_type == "Mo_Sub",]
+perm_table_tidy_posv <- perm_table_tidy_posv %>%
+  mutate(Percent = hits / annotations) %>%
+  mutate(Fold_enrichment = hits / mean)
+
+avg_per_posv <- mean(perm_table_tidy_posv$Percent)
+#0.0971152
+avg_fen_posv <- mean(perm_table_tidy_posv$Fold_enrichment)
+#1.442383
+range(perm_table_tidy_posv$enrichment)
+
+?phyper(118,1500,4800,)
+
+```
+
+
+

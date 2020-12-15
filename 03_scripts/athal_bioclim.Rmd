@@ -1,0 +1,1165 @@
+---
+title: "athal_bioclim"
+output: html_document
+---
+
+#Searching for some sort of association between CNS structure and bioclim data
+
+- code continuously along phylogeny and pca plot
+- start with PCA
+
+Code_block: PCA
+- load in pca table
+- Figure out how to code continuously
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+merged_df = read.table( file = "/Users/alanyocca/Documents/01_athal_cns/pca_data_table.txt",row.names = NULL,sep = "\t", header = T)
+
+#change terminology
+merged_df$Tag = gsub("Missing","PAV",merged_df$Tag)
+merged_df$Tag = gsub("Moved","PosV",merged_df$Tag)
+
+#add common names
+adp_meta_table = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/final_gen_eco_cn_id.txt",header = T, sep = "\t", stringsAsFactors = F)
+
+#add latitude, longitude
+srr_lat_long = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/srr_lat_long.txt",header = F,row.names = NULL,sep = "\t")
+
+colnames(srr_lat_long) = c("SRR","Lat","Long")
+srr_lat_long$SRR = gsub("_.*","",srr_lat_long$SRR)
+
+comb_lat_long_meta = merge(srr_lat_long,adp_meta_table)
+
+Common_Name_vect = vector()
+Lat = vector()
+Long = vector()
+Ecotype = vector()
+Geo = vector()
+for (i in 1:nrow(comb_lat_long_meta)) {
+  indicies = which(grepl(comb_lat_long_meta$SRR[i],merged_df$Accession))
+  Common_Name_vect[indicies] = comb_lat_long_meta$Common_Name[i]
+  Lat[indicies] = comb_lat_long_meta$Lat[i]
+  Long[indicies] = comb_lat_long_meta$Long[i]
+  Ecotype[indicies] = comb_lat_long_meta$ecotype[i]
+  Geo[indicies] = comb_lat_long_meta$geo_loc_name[i]
+}
+
+merged_df = cbind(merged_df,Common_Name_vect,Lat,Long,Ecotype,Geo)
+
+#add continuous variables, playing around with colors
+#just play around
+random_continuous = runif(nrow(merged_df),min = 0, max = 1)
+merged_df = cbind(merged_df,random_continuous)
+
+#sapply(merged_df,class)
+pca_plot = merged_df[which(merged_df$Tag == "PAV"),] %>% 
+  ggplot(aes(x = PC1 , y = PC2, color = random_continuous)) +
+  geom_point() +
+  scale_colour_gradient(low = "#132B43", high = "#56B1F7")
+pca_plot
+# nice
+# going to be a little more difficult for tip labels because will scale manually....
+# welp have precip data downloaded
+# going to be difficult to assign, no?
+# perhaps write my own function for that, simple
+# just find lat/long interval it falls between, slide along
+
+#save file, here believe we added PCA to our adp meta table
+merged_df = merged_df[,1:(ncol(merged_df) - 1)]
+colnames(merged_df)[6] = "Common_Name"
+
+
+write.table(merged_df,file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/adp_pca_table.txt",sep = "\t",quote = F,row.names = F)
+ 
+```
+
+Code_block: Retrieve BioClim
+- try and get bioclim data for given lat / long
+
+```{r}
+#rm(list=ls(all=TRUE))
+#install.packages("raster")
+#install.packages("sp")
+library(raster)
+library(sp)
+
+r <- getData("worldclim",var="bio",res=10)
+r <- r[[c(1,12)]]
+names(r) <- c("Temp","Prec")
+
+lats <- c(9.093028 , 9.396111, 9.161417)
+lons <- c(-11.7235, -11.72975, -11.709417) 
+
+coords <- data.frame(x=lons,y=lats)
+
+points <- SpatialPoints(coords, proj4string = r@crs)
+
+values <- extract(r,points)
+
+df <- cbind.data.frame(coordinates(points),values)
+df
+```
+
+Code_block: BioClim_test
+- add bioclim into meta_data table:
+  - PCAs, Accession, Common name, lat/long, and 19 Bioclim vars
+- just getting code to work here
+- yea you shouldn't run this code block
+```{r}
+rm(list=ls(all=TRUE))
+library(raster)
+#library(sp)
+
+pca_table = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/adp_pca_table.txt",sep = "\t",header = T,row.names = NULL)
+
+#gots some lats and longs, add bioclim to this table
+#?getData
+r <- getData("worldclim",var="bio",res=2.5)
+
+#what if I just search each lat and long separately?
+#because want higher res hopefully less NA
+lat_long_pairs = unique(pca_table[,c('Lat','Long')])
+
+#?getData
+#r <- getData("worldclim",var="bio",res=0.5,lat=lat_long_pairs[2,1],lon=lat_long_pairs[2,2])
+
+r <- r[[1]]
+names(r) = "Temp"
+names(r) <- c("Temp",
+              "Diurnal_Range",
+              "Isotherm",
+              "Tmp_szn",
+              "Max_temp",
+              "Min_temp",
+              "Tmp_range",
+              "Tmp_wet",
+              "Tmp_dry",
+              "Tmp_warm",
+              "Tmp_cold",
+              "Precip",
+              "Prec_wetm",
+              "Prec_drym",
+              "Prec_szn",
+              "Prec_wetq",
+              "Prec_dryq",
+              "Prec_warmq",
+              "Prec_coldq")
+
+coords = data.frame(pca_table$Long,pca_table$Lat)
+#?SpatialPoints
+points <- SpatialPoints(coords, proj4string = r@crs)
+#?extract
+values <- extract(r,coords)
+
+#crop raster file first
+limits = extent(-74,-73,40.4,41)
+#limits = extent(46.9,47.1,15.4,15.6)
+r_crop = crop(r,limits)
+
+sampled = apply(X = coords, MARGIN = 1, FUN = function(coords) r_crop@data@values[which.min(replace(distanceFromPoints(r_crop, coords), is.na(r_crop), NA))])
+
+#values(r,1)
+#r@layers[[1]]
+
+#r_tmp <- raster(ncol=10,nrow=10, xmn=0, xmx=10, ymn=0,ymx=10)
+#r_tmp[] <- 1:10
+#r_tmp[sample(1:ncell(r_tmp), size = 25)] <- NA
+
+#nl = nearestLand(points, r)
+
+#install.packages("remotes")
+#remotes::install_github("SEEG-Oxford/seegSDM")
+#library(seegSDM)
+
+#nl = nearestLand(coords, r,max_distance = 1000000)
+#??nearestLand()
+
+#crop raster file first
+limits = extent(40.4,41,73,74)
+
+r_crop = crop(r,limits)
+
+#try to loop through the layers
+dist <- distance(r)  
+# you can also set a maximum distance: dist[dist > maxdist] <- NA
+direct <- direction(r_crop, from=FALSE)
+
+# NA raster
+rna <- is.na(r_crop@layers[[1]]) # returns NA raster
+
+# store coordinates in new raster: https://stackoverflow.com/a/35592230/3752258 
+na.x <- init(rna, 'x')
+na.y <- init(rna, 'y')
+
+# calculate coordinates of the nearest Non-NA pixel
+# assume that we have a orthogonal, projected CRS, so we can use (Pythagorean) calculations
+co.x <- na.x + dist * sin(direct)
+co.y <- na.y + dist * cos(direct)
+
+# matrix with point coordinates of nearest non-NA pixel
+co <- cbind(co.x[], co.y[]) 
+
+# extract values of nearest non-NA cell with coordinates co
+NAVals <- raster::extract(r, co, method='simple') 
+r.NAVals <- rna # initiate new raster
+r.NAVals[] <- NAVals # store values in raster
+
+# cover nearest non-NA value at NA locations of original raster
+r.filled <- cover(x=r, y= r.NAVals)
+
+sampled <- raster::extract(x = r.filled, y = xy)
+
+
+
+bioclim <- cbind.data.frame(coordinates(points),values)
+colnames(bioclim)[1:2] = c("Lat","Long")
+
+bioclim_meta = merge(bioclim,pca_table)
+
+
+
+```
+
+Code_block: Add_BioClim
+- add bioclim to meta_data table
+
+```{r}
+rm(list=ls(all=TRUE))
+library(raster)
+#library(sp)
+#loading raster automatically loads sp
+
+pca_table = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/adp_pca_table.txt",sep = "\t",header = T,row.names = NULL)
+
+#gots some lats and longs, add bioclim to this table
+#?getData
+r <- getData("worldclim",var="bio",res=2.5)
+
+names(r) <- c("Temp",
+              "Diurnal_Range",
+              "Isotherm",
+              "Tmp_szn",
+              "Max_temp",
+              "Min_temp",
+              "Tmp_range",
+              "Tmp_wet",
+              "Tmp_dry",
+              "Tmp_warm",
+              "Tmp_cold",
+              "Precip",
+              "Prec_wetm",
+              "Prec_drym",
+              "Prec_szn",
+              "Prec_wetq",
+              "Prec_dryq",
+              "Prec_warmq",
+              "Prec_coldq")
+
+coords = data.frame(pca_table$Long,pca_table$Lat)
+#?SpatialPoints
+points <- SpatialPoints(coords, proj4string = r@crs)
+#?extract
+values <- extract(r,coords)
+
+bioclim <- cbind.data.frame(coordinates(points),values)
+colnames(bioclim)[1:2] = c("Long","Lat")
+
+colnames(bioclim)
+colnames(pca_table)
+head(bioclim[,1:2])
+head(pca_table[,c("Lat","Long")])
+
+bioclim_meta = unique(merge(bioclim,pca_table,by=c("Long","Lat")))
+
+write.table(bioclim_meta,file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/bioclim_pca.txt",col.names = T,row.names = F,sep = "\t",quote = F)
+```
+
+Code_block: BioClim_PCA
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+bioclim_dir = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/"
+bioclim_pca = read.table(file = paste0(bioclim_dir,"/bioclim_pca.txt"),header = T,sep = "\t")
+
+#tidy
+bioclim_pca_tidy = bioclim_pca %>% 
+  gather(key = "Variable",value = "Value",3:21)
+
+##atac_colour = "#00B0F6"
+#gene_colour = "#00BF7D"
+#cns_colour = "#A3A500"
+#peak_colour = "#E76BF3"
+#?col2rgb
+pav_pca = bioclim_pca_tidy[which(bioclim_pca_tidy$Variable == "Temp" & bioclim_pca_tidy$Tag == "PAV"),] %>% 
+  ggplot(aes(x=PC1,y=PC2,color=Value)) +
+  geom_point(size = 7) +
+#  facet_wrap(~Variable) +
+  scale_colour_gradient(low = "gold", high = "black") +
+  theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+  theme_minimal()
+#  scale_colour_gradient(low = "#132B43", high = "#56B1F7")
+pav_pca
+#i = "Temp"
+
+#rename values to temperature and adjust / 10
+bioclim_pca_tidy = bioclim_pca_tidy %>% 
+  mutate('*~degree*C*' = Value / 10)
+tmp_pca = bioclim_pca_tidy[which(bioclim_pca_tidy$Variable == i & bioclim_pca_tidy$Tag == "PAV"),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=Value)) +
+  geom_point(size = 7) +
+#  facet_wrap(~Variable) +
+  scale_colour_gradient(low = "gold", high = "black") +
+  theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+  theme_minimal()
+#  tmp_pca
+# break
+  pdf(file = paste0(bioclim_dir,"pca_pav_",i,".pdf"))
+    plot(tmp_pca)
+    dev.off()
+  rm(tmp_pca)
+
+
+
+
+for (i in unique(bioclim_pca_tidy$Variable)) {
+  print(i)
+  tmp_pca = bioclim_pca_tidy[which(bioclim_pca_tidy$Variable == i & bioclim_pca_tidy$Tag == "PAV"),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=Value)) +
+  geom_point(size = 7) +
+#  facet_wrap(~Variable) +
+  scale_colour_gradient(low = "gold", high = "black") +
+  theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+  theme_minimal()
+#  tmp_pca
+# break
+  pdf(file = paste0(bioclim_dir,"pca_pav_",i,".pdf"))
+    plot(tmp_pca)
+    dev.off()
+  rm(tmp_pca)
+}
+for (i in unique(bioclim_pca_tidy$Variable)) {
+  print(i)
+  tmp_pca = bioclim_pca_tidy[which(bioclim_pca_tidy$Variable == i & bioclim_pca_tidy$Tag == "PosV"),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=Value)) +
+    geom_point() +
+    scale_colour_gradient(low = "blue", high = "red") +
+    ggtitle(paste0("PAV PCA ", i))
+#  tmp_pca
+# break
+  pdf(file = paste0(bioclim_dir,"pca_posv_",i,".pdf"))
+    plot(tmp_pca)
+    dev.off()
+  rm(tmp_pca)
+}
+
+
+moved_to_missing_plot <- ggplot(moved_to_missing, aes(PC2, PC1)) +
+  geom_point(aes(colour = Group), size = 3) +
+  theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+  labs(fill="Admixture Group") 
+  
+  
+  
+#names(r) <- c("Temp",
+#              "Diurnal_Range",
+#              "Isotherm",
+#              "Tmp_szn",
+#              "Max_temp",
+#              "Min_temp",
+#              "Tmp_range",
+#              "Tmp_wet",
+#              "Tmp_dry",
+#              "Tmp_warm",
+#              "Tmp_cold",
+#              "Precip",
+#              "Prec_wetm",
+#              "Prec_drym",
+#              "Prec_szn",
+#              "Prec_wetq",
+#              "Prec_dryq",
+#              "Prec_warmq",
+#              "Prec_coldq")
+```
+
+
+
+above code is messy, lets get a function where we can control the bioclim variable and legend label, therefore also title, pav/posv
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+bioclim_dir = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/"
+bioclim_pca = read.table(file = paste0(bioclim_dir,"/bioclim_pca.txt"),header = T,sep = "\t")
+
+#tidy
+bioclim_pca_tidy = bioclim_pca %>% 
+  gather(key = "Variable",value = "Value",3:21)
+
+#bioclim_pca_tidy = bioclim_pca_tidy %>% 
+#  mutate('*~degree*C*' = Value / 10)
+
+pca_bioclim_plot = function(df,dir,variable,tag,units,
+                            unit_adj_function,save = T,code) {
+  df = df %>% 
+    mutate(units = unit_adj_function(Value))
+  
+  pca_fig = df[which(df$Variable == variable & df$Tag == tag),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=units)) +
+    geom_point(size = 2) +
+    scale_colour_gradient(low = "gold", high = "black", name = units) +
+    theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+    theme_minimal() +
+    labs(title = paste0(code, ".) ",tag))
+#    geom_text(label = code, aes(x = -Inf, y = Inf, hjust = 0, vjust = 1 ))
+  
+  if (save == T) {
+    pdf(file = paste0(dir,"/pca_",tag,"_",variable,".pdf"))
+      plot(pca_fig)
+      dev.off()
+  }
+  else {
+    return((pca_fig))
+  }
+}
+
+div_ten = function(x) {
+  tmp = x / 10
+  return(tmp)
+}
+none = function(x) {
+  return(x)
+}
+
+pca_pav_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = F,code = "A")
+pca_posv_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp", save = F,code = "B")
+pca_pav_prec = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",units = 'mm',unit_adj_function = none,variable = "Precip",save = F,code = "C")
+pca_posv_prec = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = none,units = 'mm',variable = "Precip", save = F,code = "D")
+
+
+library(gridExtra)
+
+pdf(file = paste0(bioclim_dir,"/pca_pav_posv_temp_prec.pdf"))
+  grid.arrange(pca_pav_tmp,pca_posv_tmp, pca_pav_prec,pca_posv_prec,ncol = 2)
+  dev.off()
+```
+
+Make a violin plot comparing the environmental variables of two clusters
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+bioclim_dir = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/"
+bioclim_pca = read.table(file = paste0(bioclim_dir,"/bioclim_pca.txt"),header = T,sep = "\t")
+
+#tidy
+bioclim_pca_tidy = bioclim_pca %>% 
+  gather(key = "Variable",value = "Value",3:21)
+
+#bioclim_pca_tidy = bioclim_pca_tidy %>% 
+#  mutate('*~degree*C*' = Value / 10)
+
+pca_bioclim_plot = function(df,dir,variable,tag,units,
+                            unit_adj_function,save = T,code) {
+  df = df %>% 
+    mutate(units = unit_adj_function(Value))
+  
+  pca_fig = df[which(df$Variable == variable & df$Tag == tag),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=units)) +
+    geom_point(size = 2) +
+    scale_colour_gradient(low = "gold", high = "black", name = units) +
+    theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+    theme_minimal() +
+    labs(title = paste0(code, ".) ",tag))
+#    geom_text(label = code, aes(x = -Inf, y = Inf, hjust = 0, vjust = 1 ))
+  
+  if (save == T) {
+    pdf(file = paste0(dir,"/pca_",tag,"_",variable,".pdf"))
+      plot(pca_fig)
+      dev.off()
+  }
+  else {
+    return((pca_fig))
+  }
+}
+
+div_ten = function(x) {
+  tmp = x / 10
+  return(tmp)
+}
+none = function(x) {
+  return(x)
+}
+
+pca_posv_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = none,units = '\u00b0C',variable = "Temp",save = F,code = "A")
+pca_posv_tmp
+
+#first cluster PC2 > 2, PC1 < 10
+bioclim_posv_pca = bioclim_pca_tidy[which(bioclim_pca_tidy$Tag == "PosV"),]
+cluster_one = bioclim_posv_pca[(bioclim_posv_pca$PC1 < 10) & (bioclim_posv_pca$PC2 > 2),]
+#length(unique(cluster_one$Accession))
+
+cluster_two_accessions = setdiff(bioclim_posv_pca$Accession, cluster_one$Accession)
+cluster_two = bioclim_posv_pca[which(bioclim_posv_pca$Accession %in% cluster_two_accessions),]
+
+#nice, now get environmental variables into same dataframe and just tag with cluster
+bioclim_posv_pca_cluster = bioclim_posv_pca %>%
+  mutate("Cluster" = ifelse(Accession %in% cluster_one$Accession,
+                            "Cluster_one","Cluster_two"))
+
+#nice now violin plot for variable used in paper
+temp_clust_plot = bioclim_posv_pca_cluster[which(bioclim_posv_pca_cluster$Variable == "Temp"),] %>% 
+  ggplot(aes(x = Cluster, y = Value)) +
+  geom_violin()
+temp_clust_plot
+
+prec_clust_plot = bioclim_posv_pca_cluster[which(bioclim_posv_pca_cluster$Variable == "Precip"),] %>% 
+  ggplot(aes(x = Cluster, y = Value)) +
+  geom_violin()
+prec_clust_plot
+```
+
+Code_block: Bioclim_violin
+- violin plots between clusters matching pca plots
+- for now, manual curation of clusters
+```{r}
+#make function to:
+#extract tag,
+#extract variable
+#add column designating cluster
+#create violin plot with matching specs as pca plots
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+
+bioclim_dir = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/"
+bioclim_pca = read.table(file = paste0(bioclim_dir,"/bioclim_pca.txt"),header = T,sep = "\t")
+
+#tidy
+bioclim_pca_tidy = bioclim_pca %>% 
+  gather(key = "Variable",value = "Value",3:21)
+
+#bioclim_pca_tidy = bioclim_pca_tidy %>% 
+#  mutate('*~degree*C*' = Value / 10)
+
+pca_bioclim_plot = function(df,dir,variable,tag,units,
+                            unit_adj_function,save = T,code) {
+  df = df %>% 
+    mutate(units = unit_adj_function(Value))
+  
+  pca_fig = df[which(df$Variable == variable & df$Tag == tag),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=units)) +
+    geom_point(size = 2) +
+    scale_colour_gradient(low = "gold", high = "black", name = units) +
+    theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+    theme_minimal() +
+    labs(title = paste0(code, ".) ",tag))
+#    geom_text(label = code, aes(x = -Inf, y = Inf, hjust = 0, vjust = 1 ))
+  
+  if (save == T) {
+    pdf(file = paste0(dir,"/pca_",tag,"_",variable,".pdf"))
+      plot(pca_fig)
+      dev.off()
+  }
+  else {
+    return((pca_fig))
+  }
+}
+
+div_ten = function(x) {
+  tmp = x / 10
+  return(tmp)
+}
+none = function(x) {
+  return(x)
+}
+
+violin_bioclim_plot = function(df,dir,variable,tag,units,
+                            unit_adj_function,save = T, 
+                            PC1_cutoff_lower = -9999999,
+                            PC1_cutoff_upper = 999999, 
+                            PC2_cutoff_lower = -999999, 
+                            PC2_cutoff_upper = 999999) {
+
+  df = df[which(df$Tag == tag),] %>% 
+    mutate(units = unit_adj_function(Value))
+ 
+  df = df[which(df$Variable == variable),]
+  
+  cluster_one = df[(df$PC1 < PC1_cutoff_upper) & 
+                    (df$PC1 > PC1_cutoff_lower) & 
+                    (df$PC2 < PC2_cutoff_upper) & 
+                    (df$PC2 > PC2_cutoff_lower),]
+  
+  df = df %>% 
+    mutate("Cluster" = ifelse(df$Accession %in% cluster_one$Accession,
+                              "Upper Cluster",
+                              "Lower Cluster"))
+  df = df %>% 
+   mutate(Avg_units = ifelse(Cluster == "Upper Cluster",
+                            mean(df[which(df$Cluster == 
+                              "Upper Cluster"),which(colnames(df) == "units")]),
+                            mean(df[which(df$Cluster == 
+                              "Lower Cluster"),which(colnames(df) == "units")])))
+  
+  violin = df %>% 
+    ggplot(aes(x=Cluster,y=units)) +
+    geom_violin(aes(fill = Avg_units)) +
+    geom_point(aes(fill = units), size = 2, shape = 21, position = position_jitter(height = .2, width = .2)) +
+    scale_fill_gradient(low = "gold", high = "black", 
+                limits = c(min(df$units),max(df$units)),
+                name = units) +
+    theme(legend.text=element_text(size=25),
+      legend.title = element_text(size = 25),
+      axis.text=element_text(size=25), 
+      axis.title.x = element_text(size=25),
+      axis.title.y = element_text(size=25),
+      title = element_text(size=25)) +  
+    scale_y_continuous(name = variable) +
+    theme_minimal() 
+#    labs(title = tag)
+
+  if (save == T) {
+    pdf(file = paste0(dir,"/violin_",tag,"_",variable,".pdf"))
+      plot(violin)
+      dev.off()
+  }
+  else {
+    return((violin))
+  }
+}
+
+
+pca_pav_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = F,code = "A")
+violin_pav_tmp = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = F, PC1_cutoff_upper = 0, PC2_cutoff_lower = 0)
+
+pca_posv_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp", save = F,code = "B")
+violin_posv_tmp = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp", save = F,PC1_cutoff_upper = 10, PC2_cutoff_lower = 2)
+
+pca_pav_prec = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",units = 'mm',unit_adj_function = none,variable = "Precip",save = F,code = "C")
+violin_pav_prec = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",units = 'mm',unit_adj_function = none,variable = "Precip",save = F,PC1_cutoff_upper = 0, PC2_cutoff_lower = 0)
+
+pca_posv_prec = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = none,units = 'mm',variable = "Precip", save = F,code = "D")
+violin_posv_prec = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = none,units = 'mm',variable = "Precip", save = F,PC1_cutoff_upper = 10, PC2_cutoff_lower = 2)
+
+library(gridExtra)
+
+#pdf(file = paste0(bioclim_dir,"/pca_violin_pav_posv_temp_prec.pdf"))
+#  grid.arrange(pca_pav_tmp,violin_pav_tmp,
+#               pca_posv_tmp,violin_posv_tmp, 
+#               pca_pav_prec,violin_pav_prec,
+#               pca_posv_prec,violin_posv_prec,ncol = 2)
+#  dev.off()
+
+#two separate graphs to split across page?
+pdf(file = paste0(bioclim_dir,"/pca_violin_pav_posv_temp.pdf"))
+  grid.arrange(pca_pav_tmp,violin_pav_tmp,
+               pca_posv_tmp,violin_posv_tmp, 
+               ncol = 2)
+  dev.off()
+
+pdf(file = paste0(bioclim_dir,"/pca_violin_pav_posv_prec.pdf"))
+  grid.arrange(pca_pav_prec,violin_pav_prec,
+               pca_posv_prec,violin_posv_prec,ncol = 2)
+  dev.off()
+
+
+```
+
+
+Testing code
+```{r}
+
+#create bioclim_pca_tidy object, messing around with getting labels so can select accessions
+#pca_posv_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp", save = T,code = "B")
+
+bioclim_pca_tidy = bioclim_pca_tidy %>% 
+  mutate(units = unit_adj_function(Value))
+tag = "PAV"
+tmp = bioclim_pca_tidy[which(bioclim_pca_tidy$Variable == variable & bioclim_pca_tidy$Tag == tag),]
+
+
+pca_fig = tmp %>% 
+  ggplot(aes(x=PC1 , y=PC2, color=units, label = Common_Name)) +
+  geom_text_repel() +
+  geom_point(size = 2) +
+  scale_colour_gradient(low = "gold", high = "black", name = units) +
+  theme(legend.text=element_text(size=25),
+      legend.title = element_text(size = 25),
+      axis.text=element_text(size=25),
+      axis.title.x = element_text(size=25),
+      axis.title.y = element_text(size=25),
+      title = element_text(size=25)) +
+  theme_minimal() +
+  labs(title = paste0(code, ".) ",tag))
+pca_fig
+
+#save
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim//temp_posv_pca.pdf", height = 4.2, width = 6.2)
+  pca_fig
+  dev.off()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim//temp_pav_pca.pdf", height = 4.2, width = 6.2)
+  pca_fig
+  dev.off()
+
+
+#a
+
+###
+###
+###
+df = df[which(df$Tag == tag),] %>% 
+    mutate(units = unit_adj_function(Value))
+  
+  cluster_one = df[(df$PC1 < PC1_cutoff_upper) & 
+                    (df$PC1 > PC1_cutoff_lower) & 
+                    (df$PC2 < PC2_cutoff_upper) & 
+                    (df$PC2 > PC1_cutoff_lower),]
+  
+  df = df %>% 
+    mutate("Cluster" = ifelse(df$Accession %in% cluster_one$Accession,
+                              "Cluster_one",
+                              "Cluster_two"))
+  
+none = function(variables) {
+  return(variables)
+}
+div_ten = function(x) {
+  tmp = x / 10
+  return(tmp)
+}
+temp_posv_df = bioclim_pca_tidy[which(bioclim_pca_tidy$Tag == "PAV"),] %>% 
+  mutate(units = none(Value))
+
+violin_pav_prec = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",units = 'mm',unit_adj_function = none,variable = "Precip",save = F,PC1_cutoff_upper = 0, PC2_cutoff_lower = 0)
+
+#PC1 < 10) & (bioclim_posv_pca$PC2 > 2),]
+PC1_cutoff_upper = 0
+PC1_cutoff_lower = -999999
+PC2_cutoff_upper = 999999
+PC2_cutoff_lower = 0
+
+cluster_one = temp_posv_df[(temp_posv_df$PC1 < PC1_cutoff_upper) & 
+                    (temp_posv_df$PC1 > PC1_cutoff_lower) & 
+                    (temp_posv_df$PC2 < PC2_cutoff_upper) & 
+                    (temp_posv_df$PC2 > PC2_cutoff_lower),]
+#length(unique(cluster_one$Accession))
+temp_posv_df = temp_posv_df[which(temp_posv_df$Variable == "Precip"),]
+temp_posv_df = temp_posv_df %>% 
+    mutate("Cluster" = ifelse(temp_posv_df$Accession %in% cluster_one$Accession,
+                              "Upper Cluster",
+                              "Lower Cluster"))
+temp_posv_df = temp_posv_df %>% 
+  mutate(Avg_units = ifelse(Cluster == "Cluster_one",
+                            mean(temp_posv_df[which(temp_posv_df$Cluster == 
+                                              "Upper Cluster"),which(colnames(temp_posv_df) == "units")]),
+                            mean(temp_posv_df[which(temp_posv_df$Cluster == 
+                                              "Lower Cluster"),which(colnames(temp_posv_df) == "units")])))
+
+#mean(temp_posv_df[which(temp_posv_df$Cluster == "Cluster_two"),which(colnames(temp_posv_df) == "Value")])
+#tmp = temp_posv_df[which(temp_posv_df$Cluster == "Cluster_two"),which(colnames(temp_posv_df) == "Value")]
+#mean(tmp$Value)
+ggplot(aes(x=PC1,y=PC2,color=units)) +
+    geom_point(size = 2) +
+    scale_colour_gradient(low = "gold", high = "black", name = units) 
+units = 'mm'
+variable = "Precip"
+
+violin = temp_posv_df %>% 
+  ggplot(aes(x=Cluster,y=units)) +
+  geom_violin(aes(fill = Avg_units)) +
+  geom_point(aes(fill = units), size = 2, shape = 21, position = position_jitter(height = .2, width = .2)) +
+#  scale_color_gradient(low = "gold", high = "black", 
+#                limits = c(min(temp_posv_df$units),max(temp_posv_df$units))) +
+  scale_fill_gradient(low = "gold", high = "black", 
+                limits = c(min(temp_posv_df$units),max(temp_posv_df$units)),
+                name = units) +
+  theme(legend.text=element_text(size=25),
+    legend.title = element_text(size = 25),
+    axis.text=element_text(size=25), 
+    axis.title.x = element_text(size=25),
+    axis.title.y = element_text(size=25),
+    title = element_text(size=25)) +  
+  scale_y_continuous(name = variable) +
+  theme_minimal()
+#    labs(title = paste0(code, ".) ",tag))
+violin    
+  
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/tmp_violin.pdf")
+  violin
+  dev.off()
+    
+```
+
+
+Combine using multipanel fig
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+bioclim_dir = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/"
+bioclim_pca = read.table(file = paste0(bioclim_dir,"/bioclim_pca.txt"),header = T,sep = "\t")
+
+#tidy
+bioclim_pca_tidy = bioclim_pca %>% 
+  gather(key = "Variable",value = "Value",3:21)
+
+#bioclim_pca_tidy = bioclim_pca_tidy %>% 
+#  mutate('*~degree*C*' = Value / 10)
+
+pca_bioclim_plot = function(df,dir,variable,tag,units,
+                            unit_adj_function,save = T,code) {
+  df = df %>% 
+    mutate(units = unit_adj_function(Value))
+  
+  pca_fig = df[which(df$Variable == variable & df$Tag == tag),] %>% 
+    ggplot(aes(x=PC1,y=PC2,color=units)) +
+    geom_point(size = 2) +
+    scale_colour_gradient(low = "gold", high = "black", name = units) +
+    labs(title = tag) +
+    theme(plot.title = element_text(size = 12, hjust = 0.5),
+        legend.text = element_text(size=12),
+        legend.title = element_text(size = 12),
+        axis.text = element_text(size=12),
+        axis.title.x = element_text(size=12),
+        axis.title.y = element_text(size=12)) +
+    theme_minimal()
+#    geom_text(label = code, aes(x = -Inf, y = Inf, hjust = 0, vjust = 1 ))
+  
+  if (save == T) {
+    pdf(file = paste0(dir,"/pca_",tag,"_",variable,".pdf"), height = 2, width = 3)
+      plot(pca_fig)
+      dev.off()
+  }
+  else {
+    return((pca_fig))
+  }
+}
+
+div_ten = function(x) {
+  tmp = x / 10
+  return(tmp)
+}
+none = function(x) {
+  return(x)
+}
+
+violin_bioclim_plot = function(df,dir,variable,tag,units,
+                            unit_adj_function,save = T, 
+                            PC1_cutoff_lower = -9999999,
+                            PC1_cutoff_upper = 999999, 
+                            PC2_cutoff_lower = -999999, 
+                            PC2_cutoff_upper = 999999) {
+
+  df = df[which(df$Tag == tag),] %>% 
+    mutate(units = unit_adj_function(Value))
+ 
+  df = df[which(df$Variable == variable),]
+  
+  cluster_one = df[(df$PC1 < PC1_cutoff_upper) & 
+                    (df$PC1 > PC1_cutoff_lower) & 
+                    (df$PC2 < PC2_cutoff_upper) & 
+                    (df$PC2 > PC2_cutoff_lower),]
+  
+  df = df %>% 
+    mutate("Cluster" = ifelse(df$Accession %in% cluster_one$Accession,
+                              "Upper Cluster",
+                              "Lower Cluster"))
+  df = df %>% 
+   mutate(Avg_units = ifelse(Cluster == "Upper Cluster",
+                            mean(df[which(df$Cluster == 
+                              "Upper Cluster"),which(colnames(df) == "units")]),
+                            mean(df[which(df$Cluster == 
+                              "Lower Cluster"),which(colnames(df) == "units")])))
+  
+  violin = df %>% 
+    ggplot(aes(x=Cluster,y=units)) +
+    geom_violin(aes(fill = Avg_units)) +
+    geom_point(aes(fill = units), size = 2, shape = 21, position = position_jitter(height = .2, width = .2)) +
+    scale_fill_gradient(low = "gold", high = "black", 
+                limits = c(min(df$units),max(df$units)),
+                name = units) +
+    labs(title = tag) +
+    theme(legend.text=element_text(size=12),
+      legend.title = element_text(size = 12),
+      axis.text=element_text(size=12), 
+      axis.title.x = element_text(size=12),
+      axis.title.y = element_text(size=12),
+      title = element_text(size=12)) +  
+    scale_y_continuous(name = variable) +
+    theme_minimal() 
+#    labs(title = tag)
+
+  if (save == T) {
+    pdf(file = paste0(dir,"/violin_",tag,"_",variable,".pdf"), height = 2, width = 3)
+      plot(violin)
+      dev.off()
+  }
+  else {
+    return((violin))
+  }
+}
+
+
+pca_pav_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = T,code = "A")
+#save separately, mess around with sizing
+
+#pdf(file = paste0(bioclim_dir,"tmp_pca.pdf"), width = 3, height = 2)
+#pca_pav_tmp
+#dev.off()
+
+violin_pav_tmp = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = T, PC1_cutoff_upper = 0, PC2_cutoff_lower = 0)
+
+#pdf(file = paste0(bioclim_dir,"tmp_violin.pdf"), width = 3, height = 2)
+#violin_pav_tmp
+#dev.off()
+#
+#
+#
+#
+#
+
+pca_posv_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp", save = T,code = "B")
+violin_posv_tmp = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp", save = T,PC1_cutoff_upper = 10, PC2_cutoff_lower = 2)
+
+pca_pav_prec = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",units = 'mm',unit_adj_function = none,variable = "Precip",save = T,code = "C")
+violin_pav_prec = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PAV",units = 'mm',unit_adj_function = none,variable = "Precip",save = T,PC1_cutoff_upper = 0, PC2_cutoff_lower = 0)
+
+pca_posv_prec = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = none,units = 'mm',variable = "Precip", save = T,code = "D")
+violin_posv_prec = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "PosV",unit_adj_function = none,units = 'mm',variable = "Precip", save = T,PC1_cutoff_upper = 10, PC2_cutoff_lower = 2)
+
+
+```
+
+```{r}
+library(multipanelfigure)
+
+figure <- multi_panel_figure(
+  width=6.2, height=4.2, unit="in",
+  columns = 2, rows = 2)
+
+#figure
+
+#pav temp pca
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_pav_Temp.pdf",
+  column = 1,
+  row = 1,
+  scaling = "none")
+
+#pav temp violin
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_PAV_Temp.pdf",
+  column = 2,
+  row = 1,
+  scaling = "none")
+
+#posv temp pca
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_posv_Temp.pdf",
+  column = 1,
+  row = 2,
+  scaling = "none")
+
+#posv temp violin
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_PosV_Temp.pdf",
+  column = 2,
+  row = 2,
+  scaling = "none")
+
+##pav prec pca
+#figure %<>% fill_panel(
+#  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_pav_Precip.pdf",
+#  column = 1,
+#  row = 3,
+#  scaling = "none")
+
+##pav prec violin
+#figure %<>% fill_panel(
+#  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_PAV_Precip.pdf",
+#  column = 2,
+#  row = 3,
+#  scaling = "none")
+
+##posv prec pca
+#figure %<>% fill_panel(
+#  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_posv_Precip.pdf",
+#  column = 1,
+#  row = 4,
+#  scaling = "none")
+
+#posv prec violin
+#figure %<>% fill_panel(
+#  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_PosV_Precip.pdf",
+#  column = 2,
+#  row = 4,
+#  scaling = "none")
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim//fig3.pdf", height = 4.2, width = 6.2)
+  figure
+  dev.off()
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim//fig3.png", height = 4.2, width = 6.2, units = "in", res = 300)
+  figure
+  dev.off()
+
+#pdf(file = paste0(bioclim_dir,"/pca_violin_pav_posv_prec.pdf"))
+#  grid.arrange(pca_pav_prec,violin_pav_prec,
+#               pca_posv_prec,violin_posv_prec,ncol = 2)
+#  dev.off()
+```
+
+Use SNP PCA instead of posv
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+
+bioclim_dir = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/"
+bioclim_pca = read.table(file = paste0(bioclim_dir,"/bioclim_pca.txt"),header = T,sep = "\t")
+
+#add snp pc values
+snp_df = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/01_snp_pca/snp_pca.txt", sep = "\t")
+snp_df = snp_df[,c(1,2,30)]
+colnames(snp_df) = c("PC1_snp","PC2_snp","Common_Name")
+
+for (i in 1:nrow(snp_df)) {
+  add_df = bioclim_pca[which(bioclim_pca$Common_Name == snp_df$Common_Name[i]),]
+  add_vect = add_df[1,]
+  add_vect$Tag = "SNP"
+  add_vect$PC1 = snp_df[i,1]
+  add_vect$PC2 = snp_df[i,2]
+  bioclim_pca = rbind(bioclim_pca,add_vect)
+}
+
+#tidy
+bioclim_pca_tidy = bioclim_pca %>% 
+  gather(key = "Variable",value = "Value",3:21)
+
+pca_snp_tmp = pca_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "SNP",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = T,code = "C")
+violin_snp_tmp = violin_bioclim_plot(df = bioclim_pca_tidy, dir = bioclim_dir,tag = "SNP",unit_adj_function = div_ten,units = '\u00b0C',variable = "Temp",save = T, PC1_cutoff_upper = -25, PC2_cutoff_lower = -100)
+
+#pca_snp_tmp
+#violin_snp_tmp
+
+
+```
+
+```{r}
+library(multipanelfigure)
+
+height_fig = 6.4
+width_fig = 6.2
+
+figure <- multi_panel_figure(
+  width=width_fig, height=height_fig, unit="in",
+  columns = 2, rows = 3)
+
+#figure
+
+#pav temp pca
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_pav_Temp.pdf",
+  column = 1,
+  row = 1,
+  scaling = "none")
+
+#pav temp violin
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_PAV_Temp.pdf",
+  column = 2,
+  row = 1,
+  scaling = "none")
+
+#posv temp pca
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_posv_Temp.pdf",
+  column = 1,
+  row = 2,
+  scaling = "none")
+
+#posv temp violin
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_PosV_Temp.pdf",
+  column = 2,
+  row = 2,
+  scaling = "none")
+
+#snp temp violin
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/pca_SNP_Temp.pdf",
+  column = 1,
+  row = 3,
+  scaling = "none")
+
+#snp temp violin
+figure %<>% fill_panel(
+  "/Users/alanyocca/Documents/01_athal_cns/29_bioclim/violin_SNP_Temp.pdf",
+  column = 2,
+  row = 3,
+  scaling = "none")
+
+
+###
+
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim//fig3_snp.pdf", height = height_fig, width = width_fig)
+  figure
+  dev.off()
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/29_bioclim//fig3_snp.png", height = height_fig, width = width_fig, units = "in", res = 300)
+  figure
+  dev.off()
+```
+
+
+

@@ -1,0 +1,238 @@
+---
+title: "athal_cns_expression"
+output: html_document
+---
+
+#graph some expression
+
+#since cant figure out which SRA files go where, going to analyze expression matrix created by 1001 epigenomes paper
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+#load in expression matrix
+
+#tidy up
+
+#want to compare:
+#key questions:
+#- expression distribution of conserved vs variable genes
+#- expression distribution of conserved CNS genes vs variable CNS genes
+
+#label genes as variable???????
+#a few different slices?
+#ugh step at a time
+##change in CNS count correlated with change in expression??
+
+#expression distribution for genes with collinear CNS vs those that have lost CNS (PAV or PosV)
+#need tag whether gene has lost CNS or not
+#tair10 will not change
+#need list of ecotypes to subset
+##only 12 so go ahead and code in here:
+eco_list <- c(5748,5950,687,6911,6933,6976,7013,7161,7186,7373,9100,9125)
+#link to SRR...
+srr_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/final_genome_eco_id.txt", sep = "\t",row.names = NULL,header = T)
+class(srr_table$ecotype)
+srr_table_sub <- srr_table[which(is.element(srr_table$ecotype, eco_list)),]
+
+#load in expression table
+exp_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/GSE80744_ath1001_tx_norm_2016-04-21-UQ_gNorm_normCounts_k4.tsv", sep = "\t",row.names = NULL,header = T)
+#View(exp_table[1:10,1:10])
+
+#subset expression table
+exp_table_header <- colnames(exp_table)
+exp_table_header <- gsub("X","",exp_table_header)
+colnames(exp_table) <- exp_table_header
+exp_table_sub <- exp_table[,c(1,which(is.element(exp_table_header, eco_list)))]
+
+exp_table_sub_tidy <- exp_table_sub %>%
+  gather(key = "Eco_ID", value = "Expression", -gene_id)
+
+#now tag genes as:
+#collinear CNS
+#missing CNS
+#moved CNS
+
+#for each accession, if else is.element from vector of missing / moved CNS
+mi_path <- "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+mi_file_list <- list.files(path=mi_path, pattern="*_missing.txt", full.names = T)
+mo_path <- "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+mo_file_list <- list.files(path=mo_path, pattern="*_moved.txt", full.names = T)
+#vect of genes with CNS
+cns_genes <- scan("/Users/alanyocca/Documents/01_athal_cns/cns_list.txt",character(), quote = "")
+cns_genes <- gsub("[0-9]*_","",cns_genes)
+
+exp_table_tag <- data.frame(gene_id = character(),
+                            Eco_ID = character(),
+                            Expression = numeric(),
+                            CNS_tag = character(),
+                            stringsAsFactors = F)
+for (eco_id in eco_list) {
+  #eco_id <- "687"
+  #class(exp_table_sub_tidy$Eco_ID)
+  loop_sub <- exp_table_sub_tidy[exp_table_sub_tidy$Eco_ID == eco_id,]
+  #link SRR
+  srr <- as.vector(unlist(srr_table_sub[srr_table_sub$ecotype == eco_id,"SRR"]))
+  mi_file <- mi_file_list[which(grepl(srr,mi_file_list))]
+  mi_vect <- scan(mi_file,character(), quote = "")
+  mo_file <- mo_file_list[which(grepl(srr,mo_file_list))]
+  mo_vect <- scan(mo_file,character(), quote = "")
+  
+  mi_vect <- gsub("[0-9]*_","",mi_vect)
+  mo_vect <- gsub("[0-9]*_","",mo_vect)
+  
+  #add extra column based on missing or moved or coll
+  loop_sub <- loop_sub %>%
+    mutate(CNS_tag = ifelse(is.element(gene_id,mi_vect), 
+                            "PAV",
+                            ifelse(is.element(gene_id,mo_vect), "PosV", 
+                                    ifelse(is.element(gene_id,cns_genes), "CNS", "Non")))
+    )
+
+  exp_table_tag <- rbind(exp_table_tag,loop_sub)  
+}
+
+
+exp_table_tag <- exp_table_tag %>%
+  mutate(log_exp = log(Expression))
+#colnames(exp_table_tag) <- c("gene_id","Eco_ID","Expression","CNS_tag")
+density_plot <- exp_table_tag %>%
+  ggplot(aes(x = CNS_tag, y = log_exp, fill = CNS_tag, alpha = 0.1)) +
+  geom_violin() +
+  ylim(0,20) +
+  geom_boxplot() +
+  ggtitle("Expression across 12 accessions comparing genes with non, collinear, or variable CNS")
+density_plot
+#
+
+write.table(exp_table_tag, file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/expression_table_12_acc.txt",quote = F,row.names = F,sep = "\t")
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/07_expression/violin_expr_12_acc.png", units = "in", res = 400, width = 11, height = 8.5)
+  plot(density_plot)
+  dev.off()
+
+```
+
+
+#what about correlation between CNS count and expression?????
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+exp_table_tag <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/expression_table_12_acc.txt",row.names = NULL, header = T,sep = "\t")
+
+cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_cns_ka_ks_counts.txt",row.names = NULL, header = T,sep = "\t")
+
+#link to SRR...
+srr_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/final_genome_eco_id.txt", sep = "\t",row.names = NULL,header = T)
+#class(srr_table$ecotype)
+eco_list <- c(5748,5950,687,6911,6933,6976,7013,7161,7186,7373,9100,9125)
+srr_table_sub <- srr_table[which(is.element(srr_table$ecotype, eco_list)),]
+
+#subset cns_count_table
+cns_count_table$Ecotype <- gsub("_.*","",cns_count_table$Ecotype)
+cns_count_table_sub <- cns_count_table[which(is.element(cns_count_table$Ecotype,srr_table_sub$SRR)),]
+rm(cns_count_table)
+
+#need tag expression values onto cns_count_table_sub...
+exp_table_srr <- data.frame(
+  gene_id = character(),
+  Eco_ID = character(),
+  Expression = numeric(),
+  CNS_tag = character(),
+  Ecotype = character()
+)
+for (ecoid in unique(as.vector(unlist(exp_table_tag$Eco_ID)))) {
+  loop_sub <- exp_table_tag[exp_table_tag$Eco_ID == ecoid,]
+  srr <- as.vector(unlist(srr_table_sub[srr_table_sub$ecotype == ecoid,"SRR"]))
+  loop_sub$Ecotype <- rep(srr,nrow(loop_sub))
+  exp_table_srr <- rbind(exp_table_srr,loop_sub)
+}
+
+cns_count_table_sub <- cns_count_table_sub %>%
+  mutate(Merge = paste0(Ecotype,",",Ortholog))
+exp_table_srr <- exp_table_srr %>%
+  mutate(Merge = paste0(Ecotype,",",gene_id))
+
+cns_exp_table <- merge(cns_count_table_sub,exp_table_srr,by = "Merge", all = T)
+
+#remove rows with NA
+cns_exp_table <- cns_exp_table[! is.na(cns_exp_table$CNS_Count), ]
+
+cns_corr <- cns_exp_table %>%
+  ggplot(aes(y = Ks, x = Expression, colour = CNS_tag, alpha = 0.01)) +
+  geom_point() +
+  ylim(0,3) +
+  xlim(0,10000)
+cns_corr
+#
+
+```
+
+
+
+messing around
+03-11-19:
+```{r}
+##only 12 so go ahead and code in here:
+#eco_list <- c(687,991,6920,6933,6976,7002,7081,7127,7177,7373,8312,9100,9125,9764,14312,5748,5950,6911,7013,7161,7186)
+ft_vect <- c(63,110.5,60.75,81.25,62.75,86.75,63.75,71.25,80.25,63,58.5,59.75,61.25,65.75,75,81.25,65.75,77.5,74,69.75,NA)
+eco_list <- c(687,991,5748,5950,6911,6920,6933,6976,7002,7013,7081,7127,7161,7177,7186,7373,8312,9100,9125,9764,14312)
+mo_list <- c("Mo","Mo","Co","Co","Co","Mo","Mo","Mo","Mo","Co","Mo","Mo","Co","Mo","Co","Mo","Mo","Mo","Mo","Mo","Mo")
+
+mo_eco_ft <- data.frame(FT = ft_vect,
+                        Eco_ID = eco_list,
+                        CNS = mo_list)
+
+#link to SRR...
+srr_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/final_genome_eco_id.txt", sep = "\t",row.names = NULL,header = T)
+class(srr_table$ecotype)
+srr_table_sub <- srr_table[which(is.element(srr_table$ecotype, eco_list)),]
+
+#load in expression table
+exp_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/07_expression/GSE80744_ath1001_tx_norm_2016-04-21-UQ_gNorm_normCounts_k4.tsv", sep = "\t",row.names = NULL,header = T)
+#View(exp_table[1:10,1:10])
+
+#subset expression table
+exp_table_header <- colnames(exp_table)
+exp_table_header <- gsub("X","",exp_table_header)
+colnames(exp_table) <- exp_table_header
+exp_table_sub <- exp_table[,c(1,which(is.element(exp_table_header, eco_list)))]
+
+exp_table_sub_tidy <- exp_table_sub %>%
+  gather(key = "Eco_ID", value = "Expression", -gene_id)
+
+goi_vect <- c("AT2G30790","AT3G50110","AT4G11440")
+
+goi_exp_table <- exp_table_sub_tidy[exp_table_sub_tidy$gene_id %in% goi_vect,]
+goi_ft_table <- data.frame(Eco_ID = eco_list,FT = ft_vect)
+mo_co_table <- data.frame(Eco_ID = eco_list,CNS = mo_list)
+
+tmp_merge <- merge(goi_exp_table,mo_eco_ft)
+#tmp_merge <- merge(tmp_merge,goi_ft_table)
+
+
+plot <- tmp_merge %>%
+  ggplot(aes(x = CNS, y = FT, fill = CNS)) +
+  geom_violin() +
+  geom_point(aes(y = FT,size = 1)) +
+  facet_grid(~gene_id) +
+  geom_text(aes(label = Eco_ID),vjust = 1.5)
+plot
+#
+wilcox.test(tmp_merge[tmp_merge$CNS == "Mo" ,"FT"],tmp_merge[tmp_merge$CNS == "Co","FT"])
+wilcox.test(mo_eco_ft[mo_eco_ft$CNS == "Mo","FT"],mo_eco_ft[mo_eco_ft$CNS == "Co","FT"])
+
+```
+
+
+
+
+
+
+
+
+

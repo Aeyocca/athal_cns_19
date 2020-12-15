@@ -1,0 +1,1898 @@
+---
+title: "GA_workshop"
+output: html_document
+---
+
+
+#ka/ks comparisons
+
+Code Block: LOAD_FORMAT
+  - load in dataframe and format it
+Dependencies: N/A
+```{r}
+#rm(list=ls(all=TRUE))
+#library(tidyverse)
+#library(ggplot2)
+
+#load in dataframe I made previously that has a lot of info...
+#explain in a bit
+
+#just loading in the first 3 accessions:
+#head_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_33_mi_mo_ka_ks.txt_head_12", sep = "\t")
+
+#remove that last column
+#head_table <- head_table[,1:6]
+#add header
+#header <- c("Accession","Class_tag","Class_prop","Class_avg","Class_num","Class_dist")
+#colnames(head_table) <- header
+
+#ready for all accessions:
+#acc_count <- "Accession count: 33"
+#meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_33_mi_mo_ka_ks.txt", sep = "\t")
+#out_directory="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/01_acc_density_33/"
+
+#remove duplicate accession list:
+acc_count <- "Accession count: 30"
+print("!!!!!!!Data now from 02_rerun folder!!!!!!!!!!!!")
+meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/02_rerun/eco_30_mi_mo_ka_ks.txt", sep = "\t")
+out_directory="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/02_density_30/02_rerun/"
+
+#remove that last column
+meta_info_table <- meta_info_table[,1:6]
+#add header
+header <- c("Accession","Class_tag","Class_prop","Class_avg","Class_num","Class_dist")
+colnames(meta_info_table) <- header
+
+print(acc_count)
+```
+
+Code Block: LOAD_KS_ONLY
+```{r}
+#rm(list=ls(all=TRUE))
+#remove duplicate accession list:
+acc_count <- "Accession count: 30"
+print("!!!!!!!Data now from 02_rerun folder!!!!!!!!!!!!")
+meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/02_rerun/eco_30_mi_mo_ks.txt", sep = "\t")
+out_directory="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/02_density_30/02_rerun"
+
+#remove that last column
+meta_info_table <- meta_info_table[,1:6]
+#add header
+header <- c("Accession","Class_tag","Class_prop","Class_avg","Class_num","Class_dist")
+colnames(meta_info_table) <- header
+
+print(acc_count)
+```
+
+Code Block: EACH_ACC
+  - distributions for each accession
+Dependencies: LOAD_FORMAT
+```{r}
+#make and store, maybe browse but just a loop to make a separate file for each accession and overlay all, mi, mo, mi_mo ka_ks dist
+
+#also looking if need to cut things, how to keep track of cutting,
+
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+uniq_acc <- unique(as.vector(meta_info_table[,1]))
+
+for (i in uniq_acc) {
+  print(paste0("Working on ",i))
+  loop_table_sub <- meta_info_table[meta_info_table$Accession == i,]
+  #only class_tag and class_dist
+  loop_table_sub <- loop_table_sub[,c(2,6)]
+  #make tidy
+  loop_table_sub$Class_dist <- as.character(loop_table_sub$Class_dist)
+  loop_table_sub_tidy <- loop_table_sub %>%
+    transform(Class_dist = strsplit(Class_dist, ",")) %>%
+    unnest(Class_dist)
+  loop_table_sub_tidy$Class_dist <- as.numeric(loop_table_sub_tidy$Class_dist)
+  loop_table_sub_tidy$Class_tag <- as.character(loop_table_sub_tidy$Class_tag)
+  #make another dataframe with mean of each class
+  loop_table_sub_tidy_less_three <-loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 3,]
+  gt_three <- nrow(loop_table_sub_tidy[loop_table_sub_tidy$Class_dist > 3,])
+  mean_table <- ddply(loop_table_sub_tidy_less_three, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+  loop_dist_zoom <- loop_table_sub_tidy %>%
+    ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+    geom_density(alpha = 0.5) +
+    xlim(0,3) +
+    geom_vline(data=mean_table, aes(xintercept=mean_table$ka_ks_mean, color=Class_tag),
+             linetype="dashed") +
+    ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("Somehow this makes it work")), angle=90) +
+    xlab("Ka/Ks Ratio") +
+    ggtitle(label = paste0("Accession: ",i, " Zoom. Greater than 3.0: ", gt_three))
+  #save plot
+  png(filename = paste0(out_directory, "/" ,i ,"_kaks_dens_zoom.png"), width = 800, height = 450)
+    plot(loop_dist_zoom)
+    dev.off()
+    loop_dist_zoom
+
+  #if ks > 3, make 3
+  loop_table_sub_tidy$Class_dist[ loop_table_sub_tidy$Class_dist >= 3 ] <- 3
+  #recompute mean
+  mean_table <- ddply(loop_table_sub_tidy, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+  loop_dist_conv <- loop_table_sub_tidy %>%
+    ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+    geom_density(alpha = 0.5) +
+    xlim(0,3) +
+    geom_vline(data=mean_table, aes(xintercept=mean_table$ka_ks_mean, color=Class_tag),
+             linetype="dashed") +
+    ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("Somehow this makes it work")), angle=90) +
+    xlab("Ka/Ks Ratio") +
+    ggtitle(label = paste0("Accession: ",i, " Convert"))
+  #save
+  png(filename = paste0(out_directory, "/" , i ,"_kaks_dens_conv.png"), width = 800, height = 450)
+    plot(loop_dist_conv)
+    dev.off()
+  #cleanup
+    rm(loop_table_sub,loop_table_sub_tidy,mean_table,loop_dist_conv,loop_dist_zoom,loop_table_sub_tidy_less_three,gt_three)
+}
+
+```
+
+
+Code Block: ALL_ACC
+  - distributions for all accessions
+Dependencies: LOAD_FORMAT
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+i="All_accessions"
+loop_table_sub <- meta_info_table[,c(2,6)]
+  #only class_tag and class_dist
+  #loop_table_sub <- loop_table_sub[,c(2,6)]
+  #make tidy
+loop_table_sub$Class_dist <- as.character(loop_table_sub$Class_dist)
+loop_table_sub_tidy <- loop_table_sub %>%
+  transform(Class_dist = strsplit(Class_dist, ",")) %>%
+  unnest(Class_dist)
+loop_table_sub_tidy$Class_dist <- as.numeric(loop_table_sub_tidy$Class_dist)
+loop_table_sub_tidy$Class_tag <- as.character(loop_table_sub_tidy$Class_tag)
+#make another dataframe with mean of each class
+loop_table_sub_tidy_less_three <-loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 1.5,]
+gt_three <- nrow(loop_table_sub_tidy[loop_table_sub_tidy$Class_dist > 1.5,])
+
+loop_table_sub_tidy$Class_tag <- gsub("Missing", "PAV", loop_table_sub_tidy)
+loop_table_sub_tidy$Class_tag <- gsub("Moved", "PosV", loop_table_sub_tidy)
+loop_table_sub_tidy <- loop_table_sub_tidy[loop_table_sub_tidy$Class_tag != "Mi_Mo"]
+
+mean_table <- ddply(loop_table_sub_tidy_less_three, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+median_table <- ddply(loop_table_sub_tidy, "Class_tag", summarise, ka_ks_median=median(Class_dist))
+
+print("Currently set to median, not mean")
+loop_dist_zoom <- loop_table_sub_tidy %>%
+  ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,1) +
+  geom_vline(data=median_table, aes(xintercept=median_table$ka_ks_median, color=Class_tag),
+             linetype="dashed") +
+  geom_text(data=median_table, mapping=aes(x=median_table$ka_ks_median, y=5, label=paste0("Median Ka/Ks: ",median_table$ka_ks_median), fill = Class_tag)) +
+  xlab("Ka/Ks Ratio") +
+  facet_grid(rows = vars(Class_tag)) +
+  ggtitle(label = paste0("Accession: ",i, " Zoom. Greater than 3.0: ", gt_three))
+
+#save plot
+loop_dist_zoom
+
+#cns_model_depth_graph <- cns_model_depth %>%
+#  ggplot(aes(x = Coords_flip, y = Norm_depth)) +
+#  geom_line(aes(colour = Type))+
+#  ylim(0,0.00175) +
+#  xlim(-2500,2500) +
+#  ggtitle("CNS depth relative to the nearest gene across CNS classes") +
+#  facet_grid(rows = vars(Type_f)) 
+#cns_model_depth_graph
+
+png(filename = paste0(out_directory, "/",i,"_kaks_dens_zoom_median.png"), width = 800, height = 450)
+  plot(loop_dist_zoom)
+  dev.off()
+
+#tmp_ks_test_data <- loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 3,]
+#ks_out_all <- ks.test(tmp_ks_test_data[tmp_ks_test_data$Class_tag == "CNS_Gene",2],tmp_ks_test_data[tmp_ks_test_data$Class_tag == "All",2])
+#wx_test <- wilcox.test(tmp_ks_test_data[tmp_ks_test_data$Class_tag == "CNS_Gene",2],tmp_ks_test_data[tmp_ks_test_data$Class_tag == "All",2])
+#ks_out_all$p.value
+#wx_test$p.value
+  
+#if ks > 3, make 3
+loop_table_sub_tidy$Class_dist[ loop_table_sub_tidy$Class_dist >= 1.5 ] <- 1.5
+  #recompute mean
+mean_table <- ddply(loop_table_sub_tidy, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+loop_dist_conv <- loop_table_sub_tidy %>%
+  ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,1.5) +
+  geom_vline(data=mean_table, aes(xintercept=mean_table$ka_ks_mean, color=Class_tag),
+             linetype="dashed") +
+  ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("Somehow this makes it work")), angle=90) +
+  xlab("Ka/Ks Ratio") +
+  ggtitle(label = paste0("Accession: ",i, " Convert"))
+  #save
+png(filename = paste0(out_directory, "/",i,"_kaks_dens_conv.png"), width = 800, height = 450)
+  plot(loop_dist_conv)
+  dev.off()
+  #cleanup
+rm(loop_table_sub,loop_table_sub_tidy,mean_table,loop_dist_conv,loop_dist_zoom,loop_table_sub_tidy_less_three,gt_three)
+
+```
+
+- Add in another distribution: just the genes that have a CNS in tair10
+
+Code Block: ALL_ACC_CNS_DIST
+  - same as above but overlapping dist of just genes that had CNS associated with them in TAIR10
+  - dropping distribution of moved missing overlap, that didn't tell us much_
+Dependencies: N/A
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+#ready for all accessions:
+meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_33_mi_mo_cns_ka_ks.txt", sep = "\t")
+#remove that last column
+meta_info_table <- meta_info_table[,1:6]
+#add header
+header <- c("Accession","Class_tag","Class_prop","Class_avg","Class_num","Class_dist")
+colnames(meta_info_table) <- header
+
+
+i="All_accessions"
+loop_table_sub <- meta_info_table[,c(2,6)]
+  #only class_tag and class_dist
+  #loop_table_sub <- loop_table_sub[,c(2,6)]
+#Take out the mi_mo overlap:
+loop_table_sub <- loop_table_sub[! grepl("Mi_Mo",loop_table_sub$Class_tag),]
+  #make tidy
+loop_table_sub$Class_dist <- as.character(loop_table_sub$Class_dist)
+loop_table_sub_tidy <- loop_table_sub %>%
+  transform(Class_dist = strsplit(Class_dist, ",")) %>%
+  unnest(Class_dist)
+loop_table_sub_tidy$Class_dist <- as.numeric(loop_table_sub_tidy$Class_dist)
+loop_table_sub_tidy$Class_tag <- as.character(loop_table_sub_tidy$Class_tag)
+
+#Trying to get the colors to be the same:
+class_colors <- rainbow(length(unique(as.vector(loop_table_sub_tidy$Class_tag)))+1)
+
+#make another dataframe with mean of each class
+loop_table_sub_tidy_less_three <-loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 3,]
+gt_three <- nrow(loop_table_sub_tidy[loop_table_sub_tidy$Class_dist > 1.5,])
+mean_table <- ddply(loop_table_sub_tidy_less_three, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+loop_dist_zoom <- loop_table_sub_tidy %>%
+  ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+  geom_density(alpha = 0.25) +
+  xlim(0,1.5) +
+  geom_vline(data=mean_table, aes(xintercept=mean_table$ka_ks_mean, color=Class_tag),
+             linetype="dashed") +
+  ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("")), angle=90) +
+  xlab("Ka/Ks Ratio") +
+  ggtitle(label = paste0("Accession: ",i, " Zoom. Greater than 1.5: ", gt_three)) +
+  scale_fill_manual("Legend", values = class_colors)
+  #save plot
+  loop_dist_zoom
+png(filename = paste0("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/01_acc_density/",i,"_kaks_cns_dens_zoom.png"), width = 800, height = 450)
+  plot(loop_dist_zoom)
+  dev.off()
+  loop_dist_zoom
+
+  #if ks > 3, make 3
+loop_table_sub_tidy$Class_dist[ loop_table_sub_tidy$Class_dist >= 1.5 ] <- 1.5
+  #recompute mean
+mean_table <- ddply(loop_table_sub_tidy, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+loop_dist_conv <- loop_table_sub_tidy %>%
+  ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+  geom_density(alpha = 0.25) +
+  xlim(0,1.5) +
+  geom_vline(data=mean_table, aes(xintercept=mean_table$ka_ks_mean, color=Class_tag),
+             linetype="dashed") +
+  ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("")), angle=90) +
+  xlab("Ka/Ks Ratio") +
+  ggtitle(label = paste0("Accession: ",i, " Convert")) +
+  scale_fill_manual("Legend", values = class_colors)
+  #save
+png(filename = paste0("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/01_acc_density/",i,"_kaks_cns_dens_conv.png"), width = 800, height = 450)
+  plot(loop_dist_conv)
+  dev.off()
+  #cleanup
+rm(loop_table_sub,loop_table_sub_tidy,mean_table,loop_dist_conv,loop_dist_zoom,loop_table_sub_tidy_less_three,gt_three)
+```
+
+
+- Kolmogorov–Smirnov test
+  - test if homologs with CNS in TAIR10 are different / if any of our classes are different
+
+Code Block: KS_TEST_ALL
+Dependencies: N/A
+
+```{r}
+library(tidyverse)
+
+#meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_33_mi_mo_cns_ka_ks.txt", sep = "\t")
+#only need a few columns, tag and dist?
+#want to export a table getting value for each accession to their own all
+#out_directory <- "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/01_acc_density_33/"
+
+###eco_30
+meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_30_mi_mo_cns_ka_ks.txt", sep = "\t")
+out_directory <- "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/02_density_30/01_cut_three/"
+#add cut limit, no cut limit for most, curious though if taking values less than 3 change significance, probably some????
+cut_limit <- 3
+
+#then just a meta average
+meta_info_table <- meta_info_table[,c(1,2,6)]
+#add header
+header <- c("Accession","Class_tag","Class_dist")
+colnames(meta_info_table) <- header
+#class(meta_info_table$Class_dist)
+
+#?ks.test
+#Hmmm, how to code this.. I want a test to the "All" tag
+
+#make a 4th column with output testing to that accession all:
+# - for vector of unique accessions,
+#     - subset meta_info_table to just that accession,
+#     - loop through all types and compare to distribution of All tag
+#     - Append? hmmm, add to new data frame and merge after the loop
+
+acc_vect <- as.vector(unique(meta_info_table$Accession))
+
+acc_class_ks_test <- data.frame(Accession = character(),
+                                Class_tag = character(),
+                                ks_p_value_acc = numeric(),
+                                ks_p_value_all = numeric())
+
+#get distribution for all genes across all accessions
+all_dist <- as.vector(meta_info_table[meta_info_table$Class_tag == "All", 3])
+all_dist_vect <- as.numeric(unlist(strsplit(all_dist,",")))
+all_dist_vect <- all_dist_vect[which(all_dist_vect <= cut_limit)]
+
+for (accession in acc_vect) {
+  loop_sub_table <- meta_info_table[meta_info_table$Accession == accession,]
+  loop_class_vect <- as.vector(unique(loop_sub_table$Class_tag))
+  #add column, not sure this is even necessary
+  loop_sub_table[,"ks_p_value_acc"] <- c()
+  tmp_all_class <- as.vector(loop_sub_table[loop_sub_table$Class_tag == "All",3])
+  tmp_all_class_vect <- as.numeric(unlist(strsplit(tmp_all_class,",")))
+  tmp_all_class_vect <- tmp_all_class_vect[which(tmp_all_class_vect <= cut_limit)]
+  for (class in loop_class_vect) {
+    tmp_loop_class <- as.vector(loop_sub_table[loop_sub_table$Class_tag == class, 3])
+    tmp_loop_class_vect <- as.numeric(unlist(strsplit(tmp_loop_class,",")))
+    tmp_loop_class_vect <- tmp_loop_class_vect[which(tmp_loop_class_vect <= cut_limit)]
+    #ks test return warning "p-value will be approximate in the presence of ties", dont want that to pop up 200 times:
+    oldw <- getOption("warn")
+    options(warn = -1)
+    
+    ks_out_acc <- ks.test(tmp_loop_class_vect, tmp_all_class_vect)
+    ks_out_all <- ks.test(tmp_loop_class_vect,all_dist_vect)
+    
+    options(warn = oldw)
+    #add to the right place
+    loop_sub_table[loop_sub_table$Class_tag == class,"ks_p_value_acc"] <- ks_out_acc$p.value
+    loop_sub_table[loop_sub_table$Class_tag == class,"ks_p_value_all"] <- ks_out_all$p.value
+  }
+  #Drop distributions
+  loop_sub_table <- loop_sub_table[,c(1,2,4,5)]
+  #add to loop df
+  acc_class_ks_test <- rbind(acc_class_ks_test,loop_sub_table)
+  #cleanup
+  rm(loop_sub_table,loop_class_vect,tmp_all_class,tmp_all_class_vect,tmp_loop_class,tmp_loop_class_vect,ks_out_acc,ks_out_all)
+  #break
+}
+
+#also test distribution across all
+
+#which is more convervative?
+#append column comparing the two p-values, true for if all is more conservative
+acc_class_ks_test_comp <- acc_class_ks_test %>%
+  mutate(All_cons = ifelse(ks_p_value_acc < ks_p_value_all, TRUE, FALSE))
+#tmp <- "/Users/alanyocca/"
+write.table(acc_class_ks_test_comp, file = paste0(out_directory, "acc_class_ks_test_all_comp_", cut_limit, ".txt"), quote = F, sep = "\t")
+#print(out_directory)
+#?write.table
+
+#mutate(gradebook, Pass.Fail = ifelse(grade > 60, "Pass", "Fail"))
+
+#count how many trues
+nrow(acc_class_ks_test_comp)
+#[1] 165
+#150
+nrow(acc_class_ks_test_comp[acc_class_ks_test_comp$All_cons == TRUE,])
+#[1] 44
+# 26
+#So using accession numbers is more conservative
+
+
+#add final few columns: Significant / Bonferroni significant
+bonf_p_value <- 0.01/length(acc_vect)
+acc_class_ks_test_bonf <- acc_class_ks_test %>%
+  mutate(acc_bonf_sig = ifelse(ks_p_value_acc < bonf_p_value , TRUE, FALSE)) %>%
+  mutate(all_bonf_sig = ifelse(ks_p_value_all < bonf_p_value , TRUE, FALSE))
+
+write.table(acc_class_ks_test_bonf, file = paste0(out_directory, "acc_class_ks_test_all_bonf_", cut_limit, ".txt"), quote = F, sep = "\t")
+
+#Counts:
+nrow(acc_class_ks_test_bonf[acc_class_ks_test_bonf$acc_bonf_sig == TRUE,])
+#95
+#88
+nrow(acc_class_ks_test_bonf[acc_class_ks_test_bonf$all_bonf_sig == TRUE,])
+#110
+#101
+
+#need to tease apart per accession / tags:
+missing_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Missing",]
+nrow(missing_tags[missing_tags$acc_bonf_sig== TRUE,])
+#29
+#28
+nrow(missing_tags[missing_tags$all_bonf_sig== TRUE,])
+#29
+#28
+# - Col-0' and SRR1945852 exceptions
+
+moved_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Moved",]
+nrow(moved_tags[moved_tags$acc_bonf_sig== TRUE,])
+#32
+#29
+nrow(moved_tags[moved_tags$all_bonf_sig== TRUE,])
+#32
+#29
+# - Col-0' only exception
+
+mi_mo_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Mi_Mo",]
+nrow(mi_mo_tags[mi_mo_tags$acc_bonf_sig== TRUE,])
+#2
+#2
+nrow(mi_mo_tags[mi_mo_tags$all_bonf_sig== TRUE,])
+#3
+#3
+
+cns_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "CNS_Gene",]
+nrow(cns_tags[cns_tags$acc_bonf_sig== TRUE,])
+#32
+#29
+#  - Col-0' only exception
+
+nrow(cns_tags[cns_tags$all_bonf_sig== TRUE,])
+#33
+#30
+
+#Checking if Col-0' is exception to any of these:
+#View(acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Missing",])
+
+
+#print(accession)
+#accession <- "SRR1945446_bwa_alt_3_masked_maker"
+#class <- "Mi_Mo"
+#loop_sub_table <- meta_info_table[meta_info_table$Accession == accession,]
+
+#tmp_all_class <- as.vector(loop_sub_table[loop_sub_table$Class_tag == "All",3])
+#tmp_all_class_vect <- as.numeric(unlist(strsplit(tmp_all_class,",")))
+#tmp_loop_class <- as.vector(loop_sub_table[loop_sub_table$Class_tag == class, 3])
+#tmp_loop_class_vect <- as.numeric(unlist(strsplit(tmp_loop_class,",")))
+
+#ks_out <- ks.test(tmp_loop_class_vect, tmp_all_class_vect)
+#ks_p_value <- ks_out$p.value
+
+#consider this at some point:
+#oldw <- getOption("warn")
+#options(warn = -1)
+
+#[your "silenced" code]
+
+#options(warn = oldw)
+
+print(paste0("Ran above code to following output directory: ", out_directory))
+```
+
+Code Block: KS_TEST_CNS
+  - same as above, but test against distribution of CNS genes instead of All genes
+Dependencies: N/A
+
+```{r}
+library(tidyverse)
+
+#meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_33_mi_mo_cns_ka_ks.txt", sep = "\t")
+#only need a few columns, tag and dist?
+#want to export a table getting value for each accession to their own all
+#out_directory <- "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/01_acc_density_33/"
+
+##eco_30
+meta_info_table <- read.table(file="/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/eco_30_mi_mo_cns_ka_ks.txt", sep = "\t")
+out_directory <- "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/02_density_30/"
+
+
+#then just a meta average
+meta_info_table <- meta_info_table[,c(1,2,6)]
+#add header
+header <- c("Accession","Class_tag","Class_dist")
+colnames(meta_info_table) <- header
+
+acc_vect <- as.vector(unique(meta_info_table$Accession))
+
+acc_class_ks_test <- data.frame(Accession = character(),
+                                Class_tag = character(),
+                                ks_p_value_acc = numeric(),
+                                ks_p_value_all = numeric())
+
+#get distribution for all genes across all accessions
+all_dist <- as.vector(meta_info_table[meta_info_table$Class_tag == "CNS_Gene", 3])
+all_dist_vect <- as.numeric(unlist(strsplit(all_dist,",")))
+
+for (accession in acc_vect) {
+  loop_sub_table <- meta_info_table[meta_info_table$Accession == accession,]
+  loop_class_vect <- as.vector(unique(loop_sub_table$Class_tag))
+  #add column, not sure this is even necessary
+  loop_sub_table[,"ks_p_value_acc"] <- c()
+  tmp_all_class <- as.vector(loop_sub_table[loop_sub_table$Class_tag == "CNS_Gene",3])
+  tmp_all_class_vect <- as.numeric(unlist(strsplit(tmp_all_class,",")))
+  for (class in loop_class_vect) {
+    tmp_loop_class <- as.vector(loop_sub_table[loop_sub_table$Class_tag == class, 3])
+    tmp_loop_class_vect <- as.numeric(unlist(strsplit(tmp_loop_class,",")))
+    #ks test return warning "p-value will be approximate in the presence of ties", dont want that to pop up 200 times:
+    oldw <- getOption("warn")
+    options(warn = -1)
+    
+    ks_out_acc <- ks.test(tmp_loop_class_vect, tmp_all_class_vect)
+    ks_out_all <- ks.test(tmp_loop_class_vect,all_dist_vect)
+    
+    options(warn = oldw)
+    #add to the right place
+    loop_sub_table[loop_sub_table$Class_tag == class,"ks_p_value_acc"] <- ks_out_acc$p.value
+    loop_sub_table[loop_sub_table$Class_tag == class,"ks_p_value_all"] <- ks_out_all$p.value
+  }
+  #Drop distributions
+  loop_sub_table <- loop_sub_table[,c(1,2,4,5)]
+  #add to loop df
+  acc_class_ks_test <- rbind(acc_class_ks_test,loop_sub_table)
+  #cleanup
+  rm(loop_sub_table,loop_class_vect,tmp_all_class,tmp_all_class_vect,tmp_loop_class,tmp_loop_class_vect,ks_out_acc,ks_out_all)
+  #break
+}
+
+#also test distribution across all
+
+#which is more convervative?
+#append column comparing the two p-values, true for if all is more conservative
+acc_class_ks_test_comp <- acc_class_ks_test %>%
+  mutate(All_cons = ifelse(ks_p_value_acc < ks_p_value_all, TRUE, FALSE))
+write.table(acc_class_ks_test_comp, file = paste0(out_directory, "acc_class_ks_test_cns_comp.txt"), quote = F, sep = "\t")
+#mutate(gradebook, Pass.Fail = ifelse(grade > 60, "Pass", "Fail"))
+
+#count how many trues
+nrow(acc_class_ks_test_comp)
+#[1] 165
+#150
+nrow(acc_class_ks_test_comp[acc_class_ks_test_comp$All_cons == TRUE,])
+#[1] 33
+# 24
+#So using accession numbers is more conservative
+
+
+#add final few columns: Significant / Bonferroni significant
+bonf_p_value <- 0.01/length(acc_vect)
+acc_class_ks_test_bonf <- acc_class_ks_test %>%
+  mutate(acc_bonf_sig = ifelse(ks_p_value_acc < bonf_p_value , TRUE, FALSE)) %>%
+  mutate(all_bonf_sig = ifelse(ks_p_value_all < bonf_p_value , TRUE, FALSE))
+write.table(acc_class_ks_test_bonf, file = paste0(out_directory, "acc_class_ks_test_cns_bonf.txt"), quote = F, sep = "\t")
+#Counts:
+nrow(acc_class_ks_test_bonf[acc_class_ks_test_bonf$acc_bonf_sig == TRUE,])
+#82
+#77
+nrow(acc_class_ks_test_bonf[acc_class_ks_test_bonf$all_bonf_sig == TRUE,])
+#89
+#81
+
+#need to tease apart per accession / tags:
+missing_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Missing",]
+nrow(missing_tags[missing_tags$acc_bonf_sig== TRUE,])
+#19
+#18
+nrow(missing_tags[missing_tags$all_bonf_sig== TRUE,])
+#19
+#18
+
+moved_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Moved",]
+nrow(moved_tags[moved_tags$acc_bonf_sig== TRUE,])
+#31
+#29
+nrow(moved_tags[moved_tags$all_bonf_sig== TRUE,])
+#30
+#28
+
+mi_mo_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "Mi_Mo",]
+nrow(mi_mo_tags[mi_mo_tags$acc_bonf_sig== TRUE,])
+#0
+#0
+nrow(mi_mo_tags[mi_mo_tags$all_bonf_sig== TRUE,])
+#0
+#0
+
+cns_tags <- acc_class_ks_test_bonf[acc_class_ks_test_bonf$Class_tag == "CNS_Gene",]
+nrow(cns_tags[cns_tags$acc_bonf_sig== TRUE,])
+#0
+#0
+nrow(cns_tags[cns_tags$all_bonf_sig== TRUE,])
+#7
+#5
+
+print(print0("Ran the above code to following output directory: ", out_directory))
+```
+
+
+
+- binomial test testing:
+  - "For genes in TAIR10 with a CNS variable in each accession, does their ortholog in that accession have a higher chance of being present, or does it exhibit higher PAV??"
+
+
+Code Block: BINOM_TEST
+  - binomial testing gene PAV levels
+Dependencies: LOAD_FORMAT
+```{r}
+#load in datum... use the table used above because that has prop of CNS genes in each accession associated with the variable CNS
+#Also need to use the acc_ref_prop_list.txt with reference numbers for each accession
+#ugh, should rerun that to get a weighted average across all accessions.......
+#o whale can run while format this code
+
+#a little funky to format it, but easier in here than remaking to one table:
+ref_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/acc_ref_prop_list_all.txt", sep = "\t")
+
+header <- c("Accession","Ref_Type","Ref_prop", "Type_total", "Acc_total")
+colnames(ref_table) <- header
+
+#only need 1,3,5 from meta_info_table:
+acc_table <- meta_info_table[,c(1,2,3,5)]
+
+binom_table <- merge(acc_table,ref_table,by = "Accession",all = T)
+
+#nice, now loop through rows of this table and append a binomial test statistic and p-value
+#going to be: probability of:
+# x (Class_num, col 4 TIMES Class_prop, col 3)
+#out of n (Class_num, col 4)
+#given random probability of Ref_prop, col 6)
+
+#yea pretty sure thats it
+
+```
+
+Code Block: CNS_CORR_TEST
+  - check correlation between cns count and ka/ks value
+  - playing with some code
+Dependencies: N/A
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#run through single accession to get code in place, then will loop through, make graph for each accession,
+#then combine in one large data frame
+
+acc_cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/SRR1945446_bwa_alt_3_masked_cns_count_tagged.txt", sep = "\t", row.names = NULL, header = T)
+#sum(acc_cns_count_table[,2])
+
+acc_ka_ks_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/TAIR10_cds.SRR1945446_bwa_alt_3_masked_maker.ka.ks.txt", sep = "\t", row.names = NULL, header = T)
+#only need three columns
+acc_gene_ka_ks_table <- acc_ka_ks_table[,c(7,6,5)]
+header <- c("Gene","Ortholog", "Ka_Ks")
+colnames(acc_gene_ka_ks_table) <- header
+
+acc_gene_ka_ks_cns_count_table <- merge(acc_cns_count_table,acc_gene_ka_ks_table)
+#sum(acc_gene_ka_ks_cns_count_table$CNS_Count)
+
+#remove transcript ids in tair
+acc_gene_ka_ks_cns_count_table$Ortholog <- gsub("\\.[0-9]", '', acc_gene_ka_ks_cns_count_table$Ortholog)
+
+
+#> sum(acc_cns_count_table[,2])
+#[1] 18170
+#> sum(acc_gene_ka_ks_cns_count_table[,2])
+#[1] 18023
+#hmm looks like we lost some gene pairs, right, cns_counts is everything, ka/ks just those with orthologs
+
+#alrighty, make em scatterplot
+
+acc_scat <- acc_gene_ka_ks_cns_count_table %>%
+  ggplot(aes(x=acc_gene_ka_ks_cns_count_table$CNS_Count, y=acc_gene_ka_ks_cns_count_table$Ka_Ks, color = acc_gene_ka_ks_cns_count_table$Type)) +
+  geom_point(aes(alpha=0.2))
+acc_scat
+
+#load in TAIR10 and plot change in CNS:
+tair_cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/TAIR10_cns_count.txt", sep = "\t",  header=T, row.names = NULL)
+#get tair10 gene ids to same header name for merging
+header <- c("TAIR", "Ortholog", "TAIR_CNS_Count")
+colnames(tair_cns_count_table) <- header
+
+acc_tair_meta <- merge(acc_gene_ka_ks_cns_count_table, tair_cns_count_table, by = "Ortholog")
+
+#nice, now add another column that is the change from TAIR10, so ACC - tair10: CNS_Count - TAIR_CNS_Count
+acc_tair_meta <- acc_tair_meta %>%
+  mutate(CNS_Change = CNS_Count - TAIR_CNS_Count)
+
+acc_change_scat <- acc_tair_meta %>%
+  ggplot(aes(x=acc_tair_meta$CNS_Change, y=acc_tair_meta$Ka_Ks)) +
+  geom_point() +
+  ylim(0,3)
+acc_change_scat
+
+#Ranomly shuffle cns change and ka/ks values and see if any different than this
+#how to graph... plot those with really small alpha to see, right? can't compute a mean
+#eh randomly shuffle five times make alpha small for that one
+#take two columns
+acc_perm <- acc_tair_meta[,c(4,7)]
+#add Type:
+real_type_vect <- rep("Real",nrow(acc_perm))
+acc_perm[["Type"]] <- real_type_vect
+perm_type_vect <- rep("Perm",nrow(acc_perm))
+ks_col <- acc_perm$Ka_Ks
+for (i in 1:5) {
+  #shuffle CNS count
+  rand_change_col <- sample(acc_perm$CNS_Change, replace = F)
+  perm_df <- data.frame("Type" = perm_type_vect,
+                        "Ka_Ks" = ks_col,
+                        "CNS_Change" = rand_change_col)
+  acc_perm <- rbind(acc_perm,perm_df)
+    #Type: Real / Perm
+  #ka/ks
+  #CNS_Change
+  #just tag on the end
+  
+}
+
+acc_perm_scat <- acc_perm %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks) )
+#  geom_o
+             
+#             ,color = Type)) +
+#  geom_point(aes(alpha = 0.2)) 
+acc_perm_scat
+
+```
+
+Code Block: CNS_CORR
+  - check correlation between cns count and ka/ks value
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+
+#loop through tagged, use that as string to load in and add to master output df:
+#Accession  Gene  Ortholog  CNS_Count TAIR_CNS_Count  CNS_Change  Ka_Ks Type
+meta_info = data.frame("Ecotype" = character(),
+                       "Gene" = character(),
+                       "Ortholog" = character(),
+                       "CNS_Count" = numeric(),
+                       "TAIR_CNS_Count" = numeric(),
+                       "CNS_Change" = numeric(),
+                       "Ka_Ks" = numeric(),
+                       "Type" = character())
+
+path.tagged = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/04_gene_cns_count/"
+tag <- "_gene_cns_count.txt"
+file.names <- dir(path.tagged, pattern="gene_cns_count.txt", full.names = T)
+list_of_files <- file.names
+accession_list <- gsub(paste0(path.tagged,"/+"),'',list_of_files) %>%
+  gsub('_cns_count_tagged.txt','',.)
+#remove tair10
+accession_list <- accession_list[-which(grepl("tair10",accession_list))]
+
+#tair_cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/TAIR10_cns_count.txt", sep = "\t",  header=T, row.names = NULL)
+
+tair_cns_count_table <- read.table(file = paste0(path.tagged,"/tair10_gene_cns_count.txt"), sep = "\t",  header=T, row.names = NULL)
+colnames(tair_cns_count_table) <- c("Ortholog","TAIR_CNS_Count")
+#get tair10 gene ids to same header name for merging
+#header <- c("TAIR", "Ortholog", "TAIR_CNS_Count")
+#colnames(tair_cns_count_table) <- header
+#don't need first column
+#tair_cns_count_table <- tair_cns_count_table[,c(2,3)]
+
+
+#this loop still makes it so not getting global, just orthologs, make separate code block for distribution but this will work for association with ka/ks
+for (acc_file in accession_list) {
+  print(paste0("Starting on: ",acc_file))
+  acc_cns_count_table <- read.table(file = paste0(path.tagged,"/",acc_file),stringsAsFactors = F, header = T, row.names = NULL)
+  acc_base <- gsub(tag,'',acc_file)
+  #hmmm need to load in the ks dist to get that in too....
+  acc_ka_ks_table <- read.table(file = paste0("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/TAIR10_cds.", acc_base,"_maker.ka.ks.txt"), sep = "\t", row.names = NULL, header = T)
+  #only need three columns
+  acc_gene_ka_ks_table <- acc_ka_ks_table[,c(7,6,5)]
+  header <- c("Gene","Ortholog", "Ka_Ks")
+  colnames(acc_gene_ka_ks_table) <- header
+
+  acc_gene_ka_ks_cns_count_table <- merge(acc_cns_count_table,acc_gene_ka_ks_table)
+  #remove transcript ids in tair
+  acc_gene_ka_ks_cns_count_table$Ortholog <- gsub("\\.[0-9]", '', acc_gene_ka_ks_cns_count_table$Ortholog)
+
+  acc_tair_meta <- merge(acc_gene_ka_ks_cns_count_table, tair_cns_count_table, by = "Ortholog")
+
+  #nice, now add another column that is the change from TAIR10, so ACC - tair10: CNS_Count - TAIR_CNS_Count
+  acc_tair_meta <- acc_tair_meta %>%
+    mutate(CNS_Change = CNS_Count - TAIR_CNS_Count) %>% 
+    mutate(Ecotype = acc_base)
+  
+  
+  meta_info <- rbind(meta_info,acc_tair_meta)
+  
+  #cleanup
+  rm(acc_tair_meta,acc_ka_ks_table,acc_gene_ka_ks_cns_count_table,acc_gene_ka_ks_table,acc_cns_count_table,acc_base)
+}
+
+write.table(meta_info,file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info.txt",sep = "\t",quote = F,row.names = F)
+
+#print(colnames(acc_tair_meta))
+#print(colnames(meta_info))
+#dev.off()
+#df2 <- transform( df1, C = sample(C) )
+ka_ks_shuffle <- transform(meta_info, Ka_Ks = sample(Ka_Ks))
+ka_ks_shuffle <- ka_ks_shuffle %>%
+  mutate(Shuff_tag = "Shuff")
+meta_shuffle <- meta_info %>%
+  mutate(Shuff_tag = "Non")
+shuff_test_df <- rbind(ka_ks_shuffle,meta_shuffle)
+shuff_test_scat <- shuff_test_df %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Shuff_tag)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+shuff_test_scat
+
+
+
+
+meta_scat <- meta_info %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+meta_scat
+
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+  
+meta_info_norm <- meta_info %>%
+  mutate(CNS_Change_norm = if_else(TAIR_CNS_Count == 0, CNS_Change / (TAIR_CNS_Count + 1), CNS_Change / TAIR_CNS_Count))
+meta_scat <- meta_info_norm %>%
+  ggplot(aes(x=CNS_Change_norm,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+ # xlim(-3,30) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+meta_scat
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_norm_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+
+
+meta_info_abs <- meta_info
+meta_info_abs$CNS_Change <- abs(meta_info_abs$CNS_Change)
+fit <- lm(meta_info_abs$Ka_Ks ~ meta_info_abs$CNS_Change)
+meta_scat_abs <- meta_info_abs %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("Absolute CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions") +
+  stat_smooth(method = "lm", col = "black") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+meta_scat_abs
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+  
+meta_info_25_cns <- meta_info[meta_info$TAIR_CNS_Count >= 5,]  
+nrow(meta_info_25_cns)
+meta_scat_25_cns <- meta_info_25_cns %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions with genes > 5 CNS")
+meta_scat_25_cns
+
+meta_info_25_cns_abs <- meta_info_abs[meta_info_abs$TAIR_CNS_Count >= 5,]  
+fit <- lm(meta_info_25_cns_abs$Ka_Ks ~ meta_info_25_cns_abs$CNS_Change)
+?lm()
+meta_scat_25_cns_abs <- meta_info_25_cns_abs %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("ABS CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions with genes > 5 CNS") +
+  stat_smooth(method = "lm", col = "black") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+meta_scat_25_cns_abs
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks_5_cns.png")
+  plot(meta_scat_25_cns_abs)
+  dev.off()
+
+  
+  
+View(meta_info[meta_info$CNS_Change > 10,])
+
+meta_info_fold <- meta_info %>%
+  mutate(fold_change = CNS_Count / TAIR_CNS_Count)
+
+tmp_scat <- meta_info_fold %>%
+  ggplot(aes(x=fold_change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+#  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+tmp_scat
+
+View(meta_info_fold[meta_info_fold$fold_change > 25,])
+
+```
+
+Code Block: CNS_CORR_KS
+- ks not ka/ks
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+
+#loop through tagged, use that as string to load in and add to master output df:
+#Accession  Gene  Ortholog  CNS_Count TAIR_CNS_Count  CNS_Change  Ka_Ks Type
+meta_info = data.frame("Accession" = character(),
+                       "Gene" = character(),
+                       "Ortholog" = character(),
+                       "CNS_Count" = numeric(),
+                       "TAIR_CNS_Count" = numeric(),
+                       "CNS_Change" = numeric(),
+                       "Ka_Ks" = numeric(),
+                       "Type" = character(),
+                       "Ecotype" = character())
+
+path.tagged = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/"
+file.names <- dir(path.tagged, pattern="tagged.txt", full.names = T)
+list_of_files <- file.names
+accession_list <- gsub('/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/','',list_of_files) %>%
+  gsub('_cns_count_tagged.txt','',.)
+
+tair_cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/TAIR10_cns_count.txt", sep = "\t",  header=T, row.names = NULL)
+#get tair10 gene ids to same header name for merging
+header <- c("TAIR", "Ortholog", "TAIR_CNS_Count")
+colnames(tair_cns_count_table) <- header
+#don't need first column
+tair_cns_count_table <- tair_cns_count_table[,c(2,3)]
+
+for (acc_file in list_of_files) {
+  print(paste0("Starting on: ",acc_file))
+  acc_cns_count_table <- read.table(file = acc_file,stringsAsFactors = F, header = T, row.names = NULL)
+  acc_base <- gsub('/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/+','',acc_file) %>%
+    gsub('_cns_count_tagged.txt','',.)
+  #hmmm need to load in the ks dist to get that in too....
+  acc_ka_ks_table <- read.table(file = paste0("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/TAIR10_cds.", acc_base,"_maker.ka.ks.txt"), sep = "\t", row.names = NULL, header = T)
+  #only need three columns
+  acc_gene_ka_ks_table <- acc_ka_ks_table[,c(7,6,4)]
+  header <- c("Gene","Ortholog", "Ks")
+  colnames(acc_gene_ka_ks_table) <- header
+
+  acc_gene_ka_ks_cns_count_table <- merge(acc_cns_count_table,acc_gene_ka_ks_table)
+  #remove transcript ids in tair
+  acc_gene_ka_ks_cns_count_table$Ortholog <- gsub("\\.[0-9]", '', acc_gene_ka_ks_cns_count_table$Ortholog)
+
+  acc_tair_meta <- merge(acc_gene_ka_ks_cns_count_table, tair_cns_count_table, by = "Ortholog")
+
+  #nice, now add another column that is the change from TAIR10, so ACC - tair10: CNS_Count - TAIR_CNS_Count
+  acc_tair_meta <- acc_tair_meta %>%
+    mutate(CNS_Change = CNS_Count - TAIR_CNS_Count) 
+  acc_tair_meta$Ecotype <- rep(acc_base, nrow(acc_tair_meta))
+  
+  meta_info <- rbind(meta_info,acc_tair_meta)
+  
+  #cleanup
+  rm(acc_tair_meta,acc_ka_ks_table,acc_gene_ka_ks_cns_count_table,acc_gene_ka_ks_table,acc_cns_count_table,acc_base)
+}
+#print(colnames(acc_tair_meta))
+#print(colnames(meta_info))
+
+write.table(meta_info,file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_cns_ks_counts.txt", sep = "\t",quote = F,row.names = F)
+
+dev.off()
+
+meta_scat <- meta_info %>%
+  ggplot(aes(x=CNS_Change,y=Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ks value across 30 accessions")
+meta_scat
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+  
+meta_info_norm <- meta_info %>%
+  mutate(CNS_Change_norm = if_else(TAIR_CNS_Count == 0, CNS_Change / (TAIR_CNS_Count + 1), CNS_Change / TAIR_CNS_Count))
+meta_scat <- meta_info_norm %>%
+  ggplot(aes(x=CNS_Change_norm,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+ # xlim(-3,30) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+meta_scat
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_norm_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+
+
+meta_info_abs <- meta_info
+meta_info_abs$CNS_Change <- abs(meta_info_abs$CNS_Change)
+fit <- lm(meta_info_abs$Ka_Ks ~ meta_info_abs$CNS_Change)
+meta_scat_abs <- meta_info_abs %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("Absolute CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions") +
+  stat_smooth(method = "lm", col = "black") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+meta_scat_abs
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+  
+meta_info_25_cns <- meta_info[meta_info$TAIR_CNS_Count >= 5,]  
+nrow(meta_info_25_cns)
+meta_scat_25_cns <- meta_info_25_cns %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions with genes > 5 CNS")
+meta_scat_25_cns
+
+meta_info_25_cns_abs <- meta_info_abs[meta_info_abs$TAIR_CNS_Count >= 5,]  
+fit <- lm(meta_info_25_cns_abs$Ka_Ks ~ meta_info_25_cns_abs$CNS_Change)
+?lm()
+meta_scat_25_cns_abs <- meta_info_25_cns_abs %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("ABS CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions with genes > 5 CNS") +
+  stat_smooth(method = "lm", col = "black") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+meta_scat_25_cns_abs
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks_5_cns.png")
+  plot(meta_scat_25_cns_abs)
+  dev.off()
+
+  
+  
+View(meta_info[meta_info$CNS_Change > 10,])
+
+meta_info_fold <- meta_info %>%
+  mutate(fold_change = CNS_Count / TAIR_CNS_Count)
+
+tmp_scat <- meta_info_fold %>%
+  ggplot(aes(x=fold_change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+#  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+tmp_scat
+
+View(meta_info_fold[meta_info_fold$fold_change > 25,])
+
+```
+
+Code Block: CNS_COUNT_DIST
+- distribution of cns counts, see whats median / average # CNS per gene across all ecotypes
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+
+#loop through tagged, use that as string to load in and add to master output df:
+#Accession  Gene  Ortholog  CNS_Count TAIR_CNS_Count  CNS_Change  Ka_Ks Type
+meta_info = data.frame("Accession" = character(),
+                       "Gene" = character(),
+                       "CNS_Count" = numeric())
+
+path.tagged = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/04_gene_cns_count/"
+tag <- "_gene_cns_count.txt"
+file.names <- dir(path.tagged, pattern="gene_cns_count.txt", full.names = T)
+list_of_files <- file.names
+accession_list <- gsub(paste0(path.tagged,"/+"),'',list_of_files) %>%
+  gsub('_cns_count_tagged.txt','',.)
+##remove tair10
+#accession_list <- accession_list[-which(grepl("tair10",accession_list))]
+#head(accession_list)
+
+for (acc_file in accession_list) {
+  print(paste0("Starting on: ",acc_file))
+  acc_cns_count_table <- read.table(file = paste0(path.tagged,"/",acc_file),stringsAsFactors = F, header = T, row.names = NULL)
+  acc_base <- gsub(tag,'',acc_file)
+  
+  #add to meta info
+  loop_acc_vect <- rep(acc_base,nrow(acc_cns_count_table))
+  acc_cns_count_table <- cbind(loop_acc_vect,acc_cns_count_table)
+  meta_info <- rbind(meta_info,acc_cns_count_table)
+  
+  #cleanup
+  rm(loop_acc_vect,acc_cns_count_table,acc_base)
+}
+colnames(meta_info) <- c("Accession","Gene","CNS_Count")
+
+med_value <- median(meta_info[which(meta_info$CNS_Count > 0),"CNS_Count"])
+mean_value <- mean(meta_info$CNS_Count)
+cns_count_dist <- meta_info[which(meta_info$CNS_Count > 0),] %>%
+  ggplot(aes(x=1,y=CNS_Count)) +
+  geom_violin() +
+  ylim(-1,20) 
+#  geom_vline(xintercept = med_value) +
+ # geom_text(aes(x = med_value+1,y = 2,label= paste0("Median: ",med_value)))
+cns_count_dist
+#dev.off()
+
+
+
+
+
+
+```
+
+Code Block: CNS_COUNT_DIST_FM
+- new counts based on fractionation mutagenesis info, assign collinear CNS to gene, only reassign posv based on proximity
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+#loop through tagged, use that as string to load in and add to master output df:
+#Accession  Gene  Ortholog  CNS_Count TAIR_CNS_Count  CNS_Change  Ka_Ks Type
+meta_info = data.frame("Accession" = character(),
+                       "Gene" = character(),
+                       "CNS_Count" = numeric())
+
+path.tagged = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/05_fm_count/"
+tag <- "_gene_cns_count_fm.txt"
+file.names <- dir(path.tagged, pattern=tag, full.names = T)
+list_of_files <- file.names
+accession_list <- gsub(paste0(path.tagged,"/+"),'',list_of_files) 
+#  gsub(tag,'',.)
+##remove tair10
+#accession_list <- accession_list[-which(grepl("tair10",accession_list))]
+head(accession_list)
+
+for (acc_file in accession_list) {
+  print(paste0("Starting on: ",acc_file))
+  acc_cns_count_table <- read.table(file = paste0(path.tagged,"/",acc_file),stringsAsFactors = F, header = T, row.names = NULL)
+  acc_base <- gsub(tag,'',acc_file)
+  
+  #add to meta info
+  loop_acc_vect <- rep(acc_base,nrow(acc_cns_count_table))
+  acc_cns_count_table <- cbind(loop_acc_vect,acc_cns_count_table)
+  meta_info <- rbind(meta_info,acc_cns_count_table)
+  
+  #cleanup
+  rm(loop_acc_vect,acc_cns_count_table,acc_base)
+}
+colnames(meta_info) <- c("Accession","Gene","CNS_Count")
+
+med_value <- median(meta_info[which(meta_info$CNS_Count > 0),"CNS_Count"])
+mean_value <- mean(meta_info$CNS_Count)
+cns_count_dist <- meta_info[which(meta_info$CNS_Count > 0),] %>%
+  ggplot(aes(x=1,y=CNS_Count)) +
+  geom_violin() +
+  ylim(-1,20) 
+#  geom_vline(xintercept = med_value) +
+ # geom_text(aes(x = med_value+1,y = 2,label= paste0("Median: ",med_value)))
+cns_count_dist
+#dev.off()
+
+```
+
+Code Block: CNS_CORR_FM
+  - check correlation between cns count and ka/ks value with new fm_cns counts
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+
+#loop through tagged, use that as string to load in and add to master output df:
+#Accession  Gene  Ortholog  CNS_Count TAIR_CNS_Count  CNS_Change  Ka_Ks Type
+meta_info = data.frame("Ecotype" = character(),
+                       "Gene" = character(),
+                       "Ortholog" = character(),
+                       "CNS_Count" = numeric(),
+                       "TAIR_CNS_Count" = numeric(),
+                       "CNS_Change" = numeric(),
+                       "Ka" = numeric(),
+                       "Ks" = numeric(),
+                       "Ka_Ks" = numeric(),
+                       "Type" = character())
+
+path.tagged = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/05_fm_count//"
+tag <- "_gene_cns_count_fm.txt"
+file.names <- dir(path.tagged, pattern=tag, full.names = T)
+list_of_files <- file.names
+accession_list <- gsub(paste0(path.tagged,"/+"),'',list_of_files)
+ # gsub('_cns_count_tagged.txt','',.)
+#remove tair10
+accession_list <- accession_list[-which(grepl("[tT][Aa][iI][rR]",accession_list))]
+
+#tair_cns_count_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/03_cns_counts/TAIR10_cns_count.txt", sep = "\t",  header=T, row.names = NULL)
+
+tair_cns_count_table <- read.table(file = paste0(path.tagged,"/tair10_gene_cns_count_fm.txt"), sep = "\t",  header=T, row.names = NULL)
+colnames(tair_cns_count_table) <- c("Ortholog","TAIR_CNS_Count")
+#get tair10 gene ids to same header name for merging
+#header <- c("TAIR", "Ortholog", "TAIR_CNS_Count")
+#colnames(tair_cns_count_table) <- header
+#don't need first column
+#tair_cns_count_table <- tair_cns_count_table[,c(2,3)]
+
+
+#this loop still makes it so not getting global, just orthologs, make separate code block for distribution but this will work for association with ka/ks
+for (acc_file in accession_list) {
+  print(paste0("Starting on: ",acc_file))
+  acc_cns_count_table <- read.table(file = paste0(path.tagged,"/",acc_file),stringsAsFactors = F, header = T, row.names = NULL)
+  acc_base <- gsub(tag,'',acc_file)
+  #hmmm need to load in the ks dist to get that in too....
+  acc_ka_ks_table <- read.table(file = paste0("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/01_data/TAIR10_cds.", acc_base,"_maker.ka.ks.txt"), sep = "\t", row.names = NULL, header = T)
+  #only need three columns
+  acc_gene_ka_ks_table <- acc_ka_ks_table[,c(7,6,3,4,5)]
+  header <- c("Gene","Ortholog", "Ka", "Ks", "Ka_Ks")
+  colnames(acc_gene_ka_ks_table) <- header
+
+  acc_gene_ka_ks_cns_count_table <- merge(acc_cns_count_table,acc_gene_ka_ks_table)
+  #remove transcript ids in tair
+  acc_gene_ka_ks_cns_count_table$Ortholog <- gsub("\\.[0-9]", '', acc_gene_ka_ks_cns_count_table$Ortholog)
+
+  acc_tair_meta <- merge(acc_gene_ka_ks_cns_count_table, tair_cns_count_table, by = "Ortholog")
+
+  #nice, now add another column that is the change from TAIR10, so ACC - tair10: CNS_Count - TAIR_CNS_Count
+  acc_tair_meta <- acc_tair_meta %>%
+    mutate(CNS_Change = CNS_Count - TAIR_CNS_Count) %>% 
+    mutate(Ecotype = acc_base)
+  
+  
+  meta_info <- rbind(meta_info,acc_tair_meta)
+  
+  #cleanup
+  rm(acc_tair_meta,acc_ka_ks_table,acc_gene_ka_ks_cns_count_table,acc_gene_ka_ks_table,acc_cns_count_table,acc_base)
+}
+
+write.table(meta_info,file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_fm.txt",sep = "\t",quote = F,row.names = F)
+
+```
+
+```{r}
+
+meta_info = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_fm.txt",sep = "\t",row.names = NULL, header = T)
+meta_info = meta_info %>% 
+  mutate(CNS_Change_Tag = ifelse(CNS_Change > 0, "CNS_Gain",
+                               ifelse(CNS_Change < 0, "CNS_loss", "No_CNS_Change")))
+#print(colnames(acc_tair_meta))
+#print(colnames(meta_info))
+#dev.off()
+#df2 <- transform( df1, C = sample(C) )
+ka_ks_shuffle <- transform(meta_info, Ka_Ks = sample(Ka_Ks))
+ka_ks_shuffle <- ka_ks_shuffle %>%
+  mutate(Shuff_tag = "Shuff")
+meta_shuffle <- meta_info %>%
+  mutate(Shuff_tag = "Non")
+shuff_test_df <- rbind(ka_ks_shuffle,meta_shuffle)
+shuff_test_scat <- shuff_test_df %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Shuff_tag)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+shuff_test_scat
+
+
+
+
+meta_scat <- meta_info %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+meta_scat
+
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+  
+meta_info_norm <- meta_info %>%
+  mutate(CNS_Change_norm = if_else(TAIR_CNS_Count == 0, CNS_Change / (TAIR_CNS_Count + 1), CNS_Change / TAIR_CNS_Count))
+meta_scat <- meta_info_norm %>%
+  ggplot(aes(x=CNS_Change_norm,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+ # xlim(-3,30) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+meta_scat
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_norm_ka_ks.png")
+  plot(meta_scat)
+  dev.off()
+
+
+meta_info_abs <- meta_info
+meta_info_abs$CNS_Change <- abs(meta_info_abs$CNS_Change)
+fit <- lm(meta_info_abs$Ka_Ks ~ meta_info_abs$CNS_Change)
+
+meta_scat_abs <- meta_info_abs %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = CNS_Change_Tag)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("Absolute CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions") +
+  stat_smooth(method = "lm", col = "black") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+meta_scat_abs
+
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks.png")
+  plot(meta_scat_abs)
+  dev.off()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks.pdf")
+  plot(meta_scat_abs)
+  dev.off()
+  
+meta_info_25_cns <- meta_info[meta_info$TAIR_CNS_Count >= 5,]  
+nrow(meta_info_25_cns)
+meta_scat_25_cns <- meta_info_25_cns %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions with genes > 5 CNS")
+meta_scat_25_cns
+
+meta_info_25_cns_abs <- meta_info_abs[meta_info_abs$TAIR_CNS_Count >= 5,]  
+fit <- lm(meta_info_25_cns_abs$Ka_Ks ~ meta_info_25_cns_abs$CNS_Change)
+?lm()
+meta_scat_25_cns_abs <- meta_info_25_cns_abs %>%
+  ggplot(aes(x=CNS_Change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+  ylim(0,3) +
+  ggtitle("ABS CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions with genes > 5 CNS") +
+  stat_smooth(method = "lm", col = "black") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+meta_scat_25_cns_abs
+png(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/all_acc_cns_change_abs_ka_ks_5_cns.png")
+  plot(meta_scat_25_cns_abs)
+  dev.off()
+
+  
+  
+View(meta_info[meta_info$CNS_Change > 10,])
+
+meta_info_fold <- meta_info %>%
+  mutate(fold_change = CNS_Count / TAIR_CNS_Count)
+
+tmp_scat <- meta_info_fold %>%
+  ggplot(aes(x=fold_change,y=Ka_Ks, color = Type)) +
+  geom_point(aes(alpha = 0.1)) +
+#  ylim(0,3) +
+  ggtitle("CNS change relative to TAIR10 vs. Ka/Ks value across 30 accessions")
+tmp_scat
+
+View(meta_info_fold[meta_info_fold$fold_change > 25,])
+
+```
+
+
+Code Block: FM_TEST
+- playing around to see if fm cns assignments alter results
+```{r}
+#load in meta_info_fm
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+meta_info_fm = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_fm.txt",sep = "\t",row.names = NULL,header = T)
+
+meta_info = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info.txt",sep = "\t",row.names = NULL,header = T)
+
+#ayyy side by side comp, lets make sure the CNS counts changed at all first
+colnames(meta_info_fm) = c("Ortholog","Gene","CNS_Count_fm","Ka_Ks_fm","TAIR_CNS_Count_fm","CNS_Change_fm","Ecotype_fm")
+
+#make third column that is ortholog,gene, ecotype
+meta_info_fm_col = meta_info_fm %>%
+  mutate(Uni_string = paste0(Ortholog,"_",Gene,"_",Ecotype_fm))
+meta_info_col = meta_info %>%
+  mutate(Uni_string = paste0(Ortholog,"_",Gene,"_",Ecotype))
+colnames(meta_info_fm_col)
+colnames(meta_info_col)
+mi_fm_sub = meta_info_fm_col[,c(3,5,8)]
+mi_sub = meta_info_col[,c(3,5,8)]
+
+merged_df = merge(mi_sub,mi_fm_sub)
+
+identical(merged_df$CNS_Count, merged_df$CNS_Count_fm)
+#F, nice
+#now checking how many went from one category to another
+merged_df = merged_df %>%
+  mutate(CNS_Change = CNS_Count - TAIR_CNS_Count) %>% 
+  mutate(CNS_Change_fm = CNS_Count_fm - TAIR_CNS_Count_fm) %>% 
+  mutate(Flip = ifelse( ((CNS_Change * CNS_Change_fm) < 0), "True",
+                        ifelse( (CNS_Change + CNS_Change_fm) == 0, "False",
+                        ifelse( (CNS_Change * CNS_Change_fm) == 0, "True", "False"))))
+
+#
+nrow(merged_df)
+#[1] 785232
+nrow(merged_df[which(merged_df$Flip == "True"),])
+#[1] 144814
+
+#o boy thats a good bit aint it
+#[1] 0.1844219
+#.... well aint that a coincidence.....
+
+#
+
+
+```
+
+
+Code Block: CNS_Ka_Ks_FM
+  - ka/ks and ks distributions for cns counts with fractionation mutagenesis
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+meta_info = read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_fm.txt",sep = "\t",row.names = NULL, header = T)
+meta_info = meta_info %>% 
+  mutate(CNS_Change_Tag = ifelse(CNS_Change > 0, "CNS_Gain",
+                               ifelse(CNS_Change < 0, "CNS_loss", "No_CNS_Change")))
+
+#mean_table <- ddply(loop_table_sub_tidy_less_three, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+median_table <- ddply(meta_info, "CNS_Change_Tag", summarise, ka_ks_median=median(Ka_Ks))
+
+loop_dist_conv <- meta_info %>%
+  ggplot(aes(x=Ka_Ks, fill = CNS_Change_Tag)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,1.5) +
+  geom_vline(data=median_table, aes(xintercept=median_table$ka_ks_median, color=CNS_Change_Tag),
+             linetype="dashed") +
+  ggrepel::geom_text_repel(data=median_table, mapping=aes(x=median_table$ka_ks_median, y=2, label=median_table$ka_ks_median), angle=90) +
+  xlab("Ka/Ks Ratio") +
+  ggtitle(label = "Ka/Ks ratio for different gene classes")
+loop_dist_conv
+#
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/kaks_fm_counts.png")
+  plot(loop_dist_conv)
+  dev.off()
+
+median_table <- ddply(meta_info, "CNS_Change_Tag", summarise, ka_ks_median=median(Ks))
+loop_dist_conv <- meta_info %>%
+  ggplot(aes(x=Ks, fill = CNS_Change_Tag)) +
+  geom_density(alpha = 0.1) +
+  xlim(0,0.04) +
+  geom_vline(data=median_table, aes(xintercept=median_table$ka_ks_median, color=CNS_Change_Tag),
+             linetype="dashed") +
+  ggrepel::geom_text_repel(data=median_table, mapping=aes(x=median_table$ka_ks_median, y=100, label=median_table$ka_ks_median), angle=90) +
+  xlab("Ks Ratio") +
+  ggtitle(label = "Ks ratio for different gene classes") +
+  facet_grid(rows = vars(CNS_Change_Tag))
+loop_dist_conv
+#
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ks_fm_counts.png")
+  plot(loop_dist_conv)
+  dev.off()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ks_fm_counts.pdf")
+  plot(loop_dist_conv)
+  dev.off()
+
+
+```
+
+
+Hidden in here are some files for Prunus phylogeny checking whether worth performing multiple rounds of consensus calling
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#load in data
+cns_rounds <- read.table(file = "/Users/alanyocca/Documents/00_collab/01_Prunus_phylo/consensus_variant_counts.txt", row.names = NULL,header = T, sep = "\t")
+
+line_graph <- cns_rounds %>%
+  ggplot(aes(x=Round,y=Count, group=Sample)) +
+  geom_line() +
+  ylim(0,50)
+line_graph
+
+#get some coconuts on there
+# install EBImage
+source("https://bioconductor.org/biocLite.R")
+biocLite("EBImage")
+# install ggimage
+#install.packages("ggimage")
+
+library(ggimage)
+
+coconuts <- data.frame(image = rep("/Users/alanyocca/Downloads/800px_COLOURBOX2782444.png")
+                )
+
+cns_rounds_coco <- cbind(cns_rounds[cns_rounds$Sample == "Sample_68462",],coconuts)
+
+# plot2
+coconut_graph <- cns_rounds_coco %>%
+  ggplot(aes(x=Round, y=Count)) + 
+  geom_line() +
+  geom_image(aes(image=image), size=.001)
+coconut_graph
+
+png(filename = "/Users/alanyocca/Downloads/coconut_line_graph.png", width = 4, height = 6, units = 'in', res = 4500)
+  plot(coconut_graph)
+  dev.off()
+
+
+
+```
+
+
+
+- Ks distribution only
+- ka/ks distribution excluding zeros
+- Dependencie: LOAD_KS_ONLY
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+i="All_accessions"
+loop_table_sub <- meta_info_table[,c(2,6)]
+  #only class_tag and class_dist
+  #loop_table_sub <- loop_table_sub[,c(2,6)]
+  #make tidy
+loop_table_sub$Class_dist <- as.character(loop_table_sub$Class_dist)
+loop_table_sub_tidy <- loop_table_sub %>%
+  transform(Class_dist = strsplit(Class_dist, ",")) %>%
+  unnest(Class_dist)
+loop_table_sub_tidy$Class_dist <- as.numeric(loop_table_sub_tidy$Class_dist)
+loop_table_sub_tidy$Class_tag <- as.character(loop_table_sub_tidy$Class_tag)
+#make another dataframe with mean of each class
+loop_table_sub_tidy_less_three <-loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 1.5,]
+gt_three <- nrow(loop_table_sub_tidy[loop_table_sub_tidy$Class_dist > 1.5,])
+mean_table <- ddply(loop_table_sub_tidy_less_three, "Class_tag", summarise, ka_ks_mean=mean(Class_dist))
+
+ka_ks_table_no_zero <- loop_table_sub_tidy[loop_table_sub_tidy$Class_dist > -1,]
+ka_ks_table_no_zero <- ka_ks_table_no_zero[ka_ks_table_no_zero$Class_tag != "Mi_Mo",]
+gt_three <- nrow(ka_ks_table_no_zero[ka_ks_table_no_zero$Class_dist > 1.5,])
+
+loop_table_sub_tidy <- loop_table_sub_tidy[loop_table_sub_tidy$Class_tag != "Mi_Mo",]
+
+median_table <- ddply(loop_table_sub_tidy, "Class_tag", summarise, ks_median=median(Class_dist))
+
+class(loop_table_sub_tidy$Class_dist)
+min(loop_table_sub_tidy[loop_table_sub_tidy$Class_tag == "Moved",2])
+
+loop_dist_zoom <- loop_table_sub_tidy %>%
+  ggplot(aes(x=loop_table_sub_tidy$Class_dist, fill = loop_table_sub_tidy$Class_tag)) +
+  geom_density(alpha = 0.5) +
+  xlim(0,0.25) +
+  ylim(0,60) +
+  geom_vline(data=median_table, aes(xintercept=median_table$ks_median, color=Class_tag),
+             linetype="dashed") +
+  ggrepel::geom_text_repel(data=median_table, mapping=aes(x=median_table$ks_median, y=30, label=median_table$ks_median, fill=Class_tag), angle=90) +
+  #geom_vline(data=mean_table, aes(xintercept=mean_table$ka_ks_mean, color=Class_tag),
+  #          linetype="dashed") +
+ # ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("Somehow this makes it work")), angle=90) +
+  xlab("Ks") +
+  ggtitle(label = paste0("Ks distribution All genes. Count ks > 1.5: ", gt_three)) +
+  facet_grid(rows=vars(Class_tag))
+  
+#save plot
+loop_dist_zoom
+
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ks_dist.pdf", width = 12, height = 6)
+  plot(loop_dist_zoom)
+  dev.off()
+
+#png(filename = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ks_dist_all.png")
+#  plot(loop_dist_zoom)
+#  dev.off()
+
+#png(filename = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ks_dist_cns_gene.png")
+#  plot(loop_dist_zoom)
+#  dev.off()
+
+
+```
+
+
+ks distribution, need new data
+
+EMMIX Test
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#install.packages("EMMIXskew")
+library(EMMIXskew)
+#
+#library(help = "EMMIXskew")
+?bootstrap()
+
+#test run, lets just load in hmmm lets try with some dummy data:
+#two normal distribution vectors on separate means
+#try range of components, see what it spits out
+norm_samp_one <- rnorm(100,mean = 0, sd = 1)
+norm_samp_two <- rnorm(100, mean = 3, sd = 1)
+norm_samp_mat <- matrix(data = c(norm_samp_one,norm_samp_two))
+
+p <- ncol(norm_samp_mat)
+n <- nrow(norm_samp_mat)
+#this package saves files to current wd, so set here
+setwd("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/")
+bootstrap.noc(norm_samp_mat,n,p,g1 = 1,g2 = 4,ncov = 1,distr = "mvn")
+
+for (i in 1:4) {
+  component <- dget(paste0("ReturnOf_g_",i,".ret"))
+  print(paste0("BIC ",i,": ",component[["bic"]]))
+}
+tmp_plot <- as.data.frame(norm_samp_mat) %>%
+  ggplot(aes(x=V1)) +
+  geom_density()
+tmp_plot
+#
+```
+
+EMMIX Ka/Ks distributions:
+DEPENDENCY: Code Block: LOAD_FORMAT
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#install.packages("EMMIXskew")
+library(EMMIXskew)
+library(plyr)
+
+loop_table_sub <- meta_info_table[,c(2,6)]
+  #only class_tag and class_dist
+  #loop_table_sub <- loop_table_sub[,c(2,6)]
+  #make tidy
+loop_table_sub$Class_dist <- as.character(loop_table_sub$Class_dist)
+loop_table_sub_tidy <- loop_table_sub %>%
+  transform(Class_dist = strsplit(Class_dist, ",")) %>%
+  unnest(Class_dist)
+loop_table_sub_tidy$Class_dist <- as.numeric(loop_table_sub_tidy$Class_dist)
+loop_table_sub_tidy$Class_tag <- as.character(loop_table_sub_tidy$Class_tag)
+#loop_table_sub_tidy_less_three <-loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 1.5,]
+
+#for each class tag, run mixture model only values <3 across 1:10, then print BIC for them
+loop_table_sub_tidy_less_one_five <- loop_table_sub_tidy[loop_table_sub_tidy$Class_dist <= 0.6,]
+#nrow(loop_table_sub_tidy_less_one_five[loop_table_sub_tidy_less_one_five$Class_tag == "All",])
+
+#only those less than 0.6
+#tmp <- loop_table_sub_tidy_less_one_five
+
+#this package saves files to current wd, so set here
+setwd("/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/")
+tag <- "All"
+bic_vect <- c()
+for (tag in unique(as.vector(loop_table_sub_tidy_less_one_five$Class_tag))) {
+  tag_sub_mat <- as.matrix(loop_table_sub_tidy_less_one_five[loop_table_sub_tidy_less_one_five$Class_tag == tag,2])
+  #View(loop_table_sub_tidy_less_one_five[loop_table_sub_tidy_less_one_five$Class_tag == tag,])
+  p <- ncol(tag_sub_mat)
+  n <- nrow(tag_sub_mat)
+  print(paste0("Starting model selection analysis on ",tag))
+  bootstrap.noc(tag_sub_mat,n,p,g1 = 1,g2 = 9,ncov = 1,distr = "mvn")
+  for (i in 1:9) {
+    component <- dget(paste0("ReturnOf_g_",i,".ret"))
+    print(paste0("BIC ",tag," ",i,": ",component[["bic"]]))
+    bic_vect <- c(bic_vect,component[["bic"]])
+  }
+}
+
+tmp_graph <- loop_table_sub_tidy_less_one_five %>%
+  ggplot(aes(x=Class_dist)) +
+  geom_density() +
+  xlim(0,3)
+tmp_graph
+#
+x_y_stuff <- data.frame(Comp = c(1:9),
+                        BIC = c(542070.132892379,648.914834512591, 436.273063350655,199.182290994037, -51.4400111740888,-245.614971161522,-278.671073575803,-3655.9280726376,-3838.90806331656))
+
+tmp_graph <- x_y_stuff %>%
+  ggplot(aes(x=Comp,y=BIC)) +
+  geom_line() +
+  ylim(-4000,1000)
+tmp_graph
+#
+```
+
+
+
+
+```{r}
+phyper(2417, 11555, (27000-11555), 8940, lower.tail = T)
+?fisher.test
+sum(dhyper(118:1525, 4801, 62916 - 4801, 1525))
+
+phyper(208, 11555, (27000-11555), 2088)
+phyper(29, 11555, (27000-11555), 247)
+phyper(118, 4815, (62916-4815), 1524, lower.tail = F)
+
+phyper(241,1333,(11555 - 1333), 2417)
+phyper(765,3703,(11555 - 3703), 2417)
+
+
+#?phyper
+```
+
+
+sessionInfo()
+
+
+EMMIX model selection
+- ugh ran on HPCC since took ~5 days :(
+- manually make the model selection graphs to make decision
+
+```{r}
+library("tidyverse")
+library("ggplot2")
+
+mi_mo_bic <- c(-1472.79841581936,-2290.78666916514,-2682.72108806524,-2870.78404181265,-2969.20128853995,-3239.2634039941,-3484.98666496893,-3566.1659793379,-3838.90806331657,-3925.61369688557)
+
+all_bic <- c(-241616.593802952,-474848.316215168,-564034.495906907,-611219.948492888,-673519.783845356,-700159.977039981,-752178.516972864,-785566.498394057,-821046.191421904,-849011.559667634)
+
+cns_gene_bic <- c(-110365.985682642,-229820.546300301,-275467.413118813,-298434.627464324,-330122.714597826,-344905.631866802,-368647.159290033,-385477.274287381,-403803.112812784,-419041.687906774)
+
+moved_bic <- c(-12291.3851659005,-18430.6234122336,-20930.8429851074,-21739.2057571314,-23790.2353179015,-24557.5163145119,-25692.9498731004,-26771.7583498664,-27693.2012256526,-28620.082087027)
+
+bic_df <- data.frame(Mi_Mo = mi_mo_bic,
+                     All = all_bic,
+                     CNS_Gene = cns_gene_bic,
+                     Moved = moved_bic,
+                     Model_Components = c(1:10))
+
+bic_graph <- bic_df %>%
+  ggplot(aes(x=Model_Components,y=All)) +
+  geom_line()
+bic_graph
+#
+
+
+```
+
+
+Want to make ka/ks distributions for CNS_Gain CNS_Loss and no_change
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+cns_count_info <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_fm.txt",sep = "\t",row.names = NULL,header = T)
+colnames(cns_count_info)
+
+cns_count_info = cns_count_info %>% 
+  mutate(CNS_Change_Tag = ifelse(CNS_Change > 0, "CNS_Gain",
+                               ifelse(CNS_Change < 0, "CNS_loss", "No_CNS_Change")))
+
+median_table <- ddply(cns_count_info, "CNS_Change_Tag", summarise, ka_ks_median=median(Ka_Ks))
+
+
+ka_ks_cns_change = cns_count_info %>% 
+  ggplot(aes(x = Ka_Ks)) +
+  geom_density(aes(fill = CNS_Change_Tag), alpha = 0.1) +
+  xlim(0,1.5) +
+  geom_vline(data=median_table, aes(xintercept=median_table$ka_ks_median, color=CNS_Change_Tag),
+             linetype="dashed") +
+   ggrepel::geom_text_repel(data=median_table, mapping=aes(x=median_table$ka_ks_median, y=3, label=paste0("Median Ka/Ks: ",median_table$ka_ks_median), angle = 90)) +
+  xlab("Ka/Ks Ratio")
+
+#ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("Somehow this makes it work")), angle=90)
+
+ka_ks_cns_change
+#
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ka_ks_fm_change.pdf", width = 12, height = 6)
+  plot(ka_ks_cns_change)
+  dev.off()
+  
+
+median_table <- ddply(cns_count_info, "CNS_Change_Tag", summarise, ka_ks_median=median(Ks))
+
+ks_cns_change = cns_count_info %>% 
+  ggplot(aes(x = Ks)) +
+  geom_density(aes(fill = CNS_Change_Tag), alpha = 0.1) +
+  xlim(0,1.5) +
+  geom_vline(data=median_table, aes(xintercept=median_table$ks_median, color=CNS_Change_Tag),
+             linetype="dashed") +
+   ggrepel::geom_text_repel(data=median_table, mapping=aes(x=median_table$ka_ks_median, y=3, label=paste0("Median Ka/Ks: ",median_table$ka_ks_median), angle = 90)) +
+  xlab("Ka/Ks Ratio")
+
+#ggrepel::geom_text_repel(data=mean_table, mapping=aes(x=mean_table$ka_ks_mean, y=2, label=mean_table$ka_ks_mean, fill=c("Somehow this makes it work")), angle=90)
+
+ka_ks_cns_change
+#
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/03_graphs/ka_ks_fm_change.pdf", width = 12, height = 6)
+  plot(ka_ks_cns_change)
+  dev.off()
+
+#ugh gotta check whether CNS gene or not, eh could just drop that part of the analysis
+corr_graph = cns_count_info %>% 
+  ggplot(aes(x=CNS_Change,y = Ka_Ks)) +
+  geom_point() +
+  ylim(0,1.5)
+corr_graph
+#
+```
+
+Don't see much difference, potential greater conservation of those losing CNS... weird...
+- what about DEGs?? would DEGs show higher ka/ks?? could make argument if they don't then its reg changes not protein changes? hmmmm what if I cut these??? well cut down at least
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+
+cns_count_info <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_cns_ks_counts.txt",sep = "\t",row.names = NULL,header = T)
+#colnames(cns_count_info)
+
+cns_count_info = cns_count_info %>% 
+  mutate(CNS_Change_Tag = ifelse(CNS_Change > 0, "CNS_Gain",
+                               ifelse(CNS_Change < 0, "CNS_loss", "No_CNS_Change")))
+
+median_table <- ddply(cns_count_info, "CNS_Change_Tag", summarise, ka_ks_median=median(Ks))
+
+
+ks_cns_change = cns_count_info %>% 
+  ggplot(aes(x = Ks)) +
+  geom_density(aes(fill = CNS_Change_Tag), alpha = 0.1) +
+  xlim(0,0.2) +
+#  geom_vline(data=median_table, aes(xintercept=median_table$ka_ks_median, #color=CNS_Change_Tag),
+#             linetype="dashed") +
+#  geom_text(data=median_table, mapping=aes(x=median_table$ka_ks_median, y=2, #label=paste0("Median Ka/Ks: ",median_table$ka_ks_median), angle = 90)) +
+  xlab("Ka/Ks Ratio")
+ks_cns_change
+#
+```
+
+
+even less of a difference for ks distribution / median value
+
+#what are my cns changes with col-0'??
+
+```{r}
+library(tidyverse)
+
+cns_count_info <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/05_ka_ks/meta_info_cns_ks_counts.txt",sep = "\t",row.names = NULL,header = T)
+#colnames(cns_count_info)
+
+cns_count_info = cns_count_info %>% 
+  mutate(CNS_Change_Tag = ifelse(CNS_Change > 0, "CNS_Gain",
+                               ifelse(CNS_Change < 0, "CNS_loss", "No_CNS_Change")))
+
+col_0_prime <- cns_count_info[which(grepl("5757", cns_count_info$Ecotype)),]
+nrow(col_0_prime[col_0_prime$CNS_Change_Tag != "No_CNS_Change",])
+#
+
+
+```
+
+
+
+
+

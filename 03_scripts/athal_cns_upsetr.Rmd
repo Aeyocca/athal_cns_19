@@ -1,0 +1,149 @@
+---
+title: "athal_cns_upsetr"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+Messing around with UpSetR package for visualizing CNS overlap between accessions
+
+```{r}
+#rm(list=ls(all=TRUE))
+#library(tidyverse)
+#library(ggplot2)
+
+#install.packages("UpSetR")
+library(UpSetR)
+
+movies <- read.csv( system.file("extdata", "movies.csv", package = "UpSetR"), header=T, sep=";" )
+mutations <- read.csv( system.file("extdata", "mutations.csv", package = "UpSetR"), header=T, sep = ",")
+
+#Using SO answer, some package to make the matrix quickly..
+#install.packages("splitstackshape")
+library(splitstackshape)
+
+#need a loaded list of files:
+path.missing = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/"
+file.names.missing <- dir(path.missing, pattern="SRR.*missing.txt", full.names = T)
+
+path.moved = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/"
+file.names.moved <- dir(path.moved, pattern="SRR.*moved.txt", full.names = T)
+#View(file.names.missing)
+#list_of_files <- file.names.missing
+list_of_files <- file.names.moved
+
+
+#accession_list <- gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/*','',list_of_files) %>%
+#  gsub('_missing.txt','',.)
+accession_list <- gsub('/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/*','',list_of_files) %>%
+  gsub('_moved.txt','',.)
+
+
+
+  
+#list of vectors
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  scan(file = i,what = character())
+})
+
+#test_scan <- scan(file = list_of_files[1], what = character())
+
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files[[i]]) <- accession_list[i]
+}
+View(names(loaded_list_of_files))
+#?scan
+#?mget
+#?charMat
+#Get a character vector listing the loaded list of files objects
+#list_as_vect1 <- loaded_list_of_files[[1]]
+#list_as_vect2 <- loaded_list_of_files[[2]]
+#test_vect <- c("list_as_vect1", "list_as_vect2")
+#test_vect <- c("loaded_list_of_files[[1]]", "loaded_list_of_files[[2]]")
+#loaded_list_of_files[[1]]
+out <- t(splitstackshape:::charMat(listOfValues = loaded_list_of_files, fill = 0L))
+colnames(out) <- accession_list
+#out
+
+#nice, now lets try out hand at it:
+#out_missing <- as.data.frame(out)
+#write.table(out_missing,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/acc_cns_matrix_missing.txt", sep = "\t", quote = F)
+
+
+out_moved <- as.data.frame(out)
+write.table(out_moved,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/acc_cns_matrix_moved.txt", sep = "\t", quote = F)
+upset_cns <- upset(out, nsets = 6, nintersects = NA)
+
+#exclude Col-0'
+#which(accession_list %in% "SRR1945757_bwa_alt_3_masked")
+#6
+upset_cns <- upset(out, nsets = 30, nintersects = 50, sets = accession_list[-6], order.by = "freq")
+#one peak later with 19 CNS shared between some accessions, check what those accessions are:
+#tmp_row_sums <- rowSums(out)
+#which(tmp_row_sums > 18)
+#[1]  222 1005 1319
+
+#three CNS shared across 19 accessions... hmm not what I was going for
+#want columns where 19 rows have 1 for all them at least
+
+#how does the missing one look?
+#save data table:
+#write.table(out,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/upsetr_table_missing.txt", sep = "\t", quote = F)
+
+#write.table(out,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/upsetr_table_moved.txt", sep = "\t", quote = F)
+
+
+#save graph:
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/upsetr_graph.png", width = 11, height = 8.5, units = "in", res = 600)
+  upset_cns <- upset(out_moved, nsets = 30, nintersects = 50, sets = accession_list[-6], order.by = "freq")
+  dev.off()
+
+#png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/upsetr_graph_missing.png")
+#  upset_cns <- upset(out, nsets = 30, nintersects = 50, sets = accession_list[-6], order.by = "freq")
+#  dev.off()
+
+
+#find the 34 CNS shared by all 29 accessions,
+#see overlap between that an Col-0' missing set
+tmp_row_sums <- rowSums(out_moved[,-6])
+ncol(out_moved[,-6])
+#ncol(out_moved[,6])
+length(which(tmp_row_sums == 29))
+cns_all_moved <- rownames(out_moved[which(tmp_row_sums == 29),])
+write.table(cns_all_moved,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/cns_all_moved", quote = F, sep = "\n", col.names = F, row.names = F)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+

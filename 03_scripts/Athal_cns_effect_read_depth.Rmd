@@ -1,0 +1,131 @@
+---
+title: "Athal_cns_effect_read_depth"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+This document is to generate a set of graphs aimed at determining the effect of read depth on performance of my assembly pipeline
+
+big idea is to have one dataframe with everything and a bunch of line graphs
+
+I think the biggest pain will be creating the dataframe:
+This is all for Ler-0 by the way
+
+Rows:
+
+
+Columns:
+1.) Read number
+  write out
+2.) Read depth (normalized for A. thaliana)
+  do math from first column
+3.) Missing CNS #
+  write out, wc -l
+4.) Moved CNS #
+  write out, wc -l
+5.) Missing CNS overlap Can-0
+  bash loop
+6.) Moved CNS overlap Can-0
+  bash loop
+7.) # unambiguous bases
+  bash loop
+8.) # variants in 1st var_inc run
+  grep -cv on whole directory write out
+9.) # variants in 2nd var_inc run
+10.) # variants in 3rd var_inc run
+11.) % variants resolved with var_inc
+  math from later columns
+12.) prop. unmapped reads in 5th pbj round
+  I think our final output does it? if not submit job for samtools flagstat
+
+
+
+so going to make 12 different graphs
+
+Write out vectors
+
+```{r}
+read_number_per_end_vect <- c(6750000,13500000,20250000,27000000,33750000,40500000,47250000,54000000,60750000,67500000,101250000)
+
+read_number_vect <- read_number_per_end_vect*2
+
+read_depth_vect <- c(10,20,30,40,50,60,70,80,90,100,150)
+
+max_step <- c("**Var_Inc_3**","**PBJ_6**","**PBJ_6**","**PBJ_6**","**PBJ_6**","**PBJ_6**","**PBJ_6**","**PBJ_6**","**PBJ_6**","**PBJ_6**","Var_Inc_3")
+
+tmp_arrayid <- c(6,2,3,4,5,11,10,9,8,7,1)
+tmp_jobid <- c("59641398[].mgr-04.i","59655902[].mgr-04.i","59655825[].mgr-04.i","59655846[].mgr-04.i",NA,"59656405[].mgr-04.i","59656459[].mgr-04.i",NA,"59654498[].mgr-04.i",NA,"59655713[].mgr-04.i")
+
+#put in table to try and manually finish some things, look where stuff fails
+tmp_table <- data.frame("Read #"=read_number_per_end_vect,
+                        "Read Depth"=read_depth_vect,
+                        "Max Step*"=max_step,
+                        "ArrayID"=tmp_arrayid,
+                        "Working Job ID"=tmp_jobid)
+
+missing_cns_number_vect <- c(NA,NA,123,NA,NA,126,125,125,126,126,126)
+
+moved_cns_number_vect <- c(NA,NA,878,NA,NA,890,884,876,885,873,885)
+
+missing_cns_can_0_overlap_vect <- c(NA,NA,40,NA,NA,39,39,39,39,39,39)
+
+moved_cns_can_0_overlap_vect <- c(NA,NA,360,NA,NA,371,371,374,371,373,371)
+
+missing_cns_previous_overlap_vect <- c(NA,NA,NA,NA,NA,NA,125,125,125,125,124)
+
+moved_cns_previous_overlap_vect <- c(NA,NA,NA,NA,NA,NA,881,867,863,862,860)
+
+number_unambig_bases_vect <- c(NA,NA,113066329,NA,NA,113574929,113659448,113755124,113803423,113881182,114096689)
+
+number_var_1_vect <- c(NA,NA,1045400,NA,NA,1108639,1119447,1128849,1136866,1143635,1166247)
+
+number_var_2_vect <- c(NA,NA,349447,NA,NA,404685,415481,423493,430378,436219,456203)
+
+number_var_3_vect <- c(NA,NA,289786,NA,NA,335278,343302,350035,354803,359651,374130)
+
+per_resolved_vect <- 1 - number_var_3_vect/number_var_1_vect
+
+num_resolved_vect <- number_var_1_vect - number_var_3_vect
+
+prop_mapped_pbj_5_vect <- c(NA,93.57,93.56,93.52,NA,93.57,93.58,93.58,93.55,93.58,93.60)
+
+effect_read_depth_df <- data.frame("Read Number" = read_number_vect, 
+                                   "Num Missing CNS" = missing_cns_number_vect,
+                                   "Num Moved CNS" = moved_cns_number_vect,
+                                   "Num Missing Can-0 Overlap" = missing_cns_can_0_overlap_vect,
+                                   "Num Moved Can-0 Overlap" = moved_cns_can_0_overlap_vect,
+                                   "Num Ambig Bases" = number_unambig_bases_vect,
+                                   "Num Var 1" = number_var_1_vect,
+                                   "Num Var 2" = number_var_2_vect,
+                                   "Num Var 3" = number_var_3_vect,
+                                   "Per resolved" = per_resolved_vect,
+                                   "Num resolved" = num_resolved_vect,
+                                   "Proportion mapped reads" = prop_mapped_pbj_5_vect
+)
+```
+
+
+

@@ -1,0 +1,895 @@
+---
+title: "Athal_PCA"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Athal_PCA
+
+principle components analysis on cns presence absence / transposed stuff
+
+Example matrix making with variable genes:
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+suffix <- "_var.txt"
+path = "/Users/alanyocca/Documents/01_athal_cns/02_GO/01_data/gene_calls/"
+list_of_files <- dir(path, pattern=paste0("SRR.*",suffix), full.names = T)
+
+#remove Col-0, otherwise PCA plot split in one direction since variation incredibly low by comparison
+#nevermind, col-0 not the problem, this one is
+list_of_files <- list_of_files[! grepl("6036",list_of_files)]
+
+accession_list <- gsub(paste0(path,"/*"),'',list_of_files) %>%
+  gsub(suffix,'',.)
+loaded_list_of_files <- lapply(list_of_files,function(i){
+  scan(file = i,what = character())
+})
+for (i in 1:length(accession_list)) {
+  names(loaded_list_of_files)[i] <- accession_list[i]
+}
+#View(names(loaded_list_of_files))
+
+out <- t(splitstackshape:::charMat(listOfValues = loaded_list_of_files, fill = 0L))
+colnames(out) <- accession_list
+out_moved <- as.data.frame(out)
+write.table(out_moved,file = paste0(path,"/pca_matrix",suffix), sep = "\t", quote = F)
+```
+
+
+just see if CNS cluster by admixture groups, geography, or nothing
+think about finding geographic info / admixture groups later, now just try and get pca to run
+
+```{r}
+#?prcomp()
+#have cns presence absence / transposed matricies from: athal_cns_upsetr.Rmd
+#####only contains variable CNS
+cns_missing <- read.table(file =  "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/acc_cns_matrix_missing.txt", sep = "\t", header = T)
+cns_moved <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/acc_cns_matrix_moved.txt", sep = "\t", header = T)
+gene_var <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/02_GO/01_data/gene_calls/pca_matrix_var.txt", sep = "\t", header = T)
+#later, combine them, but give different value? differentiate? eh maybe keep them as 1 or 0..
+#need transposed for prcomp: feature as columns, accession as rows
+cns_missing_trans <- t(cns_missing)
+rownames(cns_missing_trans) <- colnames(cns_missing)
+cns_moved_trans <- t(cns_moved)
+rownames(cns_moved_trans) <- colnames(cns_moved)
+gene_var_trans <- t(gene_var)
+rownames(gene_var_trans) <- colnames(gene_var)
+
+#add another column that list geographic location... bin into categories...
+#add another column that lists admixture group
+
+group_assignment <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/final_genome_eco_id.txt", sep = "\t", header = T, row.names = NULL)
+#best way to add these...
+#View(rownames(cns_missing_trans))
+#make column with SRR then, subset group_assignment, then merge... should work.. might as well not even subset
+#going to be a little hacky:
+
+cns_missing_trans_grp <- cbind(cns_missing_trans, read.table(text = row.names(cns_missing_trans), sep = "_", header = F, stringsAsFactors = F, fill = T))
+first_srr_col <- ncol(cns_missing_trans)+1
+colnames(cns_missing_trans_grp)[first_srr_col] <- "SRR"
+#?cbind
+cns_missing_trans_grp <- merge(cns_missing_trans_grp,group_assignment, by.x = 'SRR')
+
+cns_moved_trans_grp <- cbind(cns_moved_trans, read.table(text = row.names(cns_moved_trans), sep = "_", header = F, stringsAsFactors = F, fill = T))
+first_srr_col <- ncol(cns_moved_trans)+1
+colnames(cns_moved_trans_grp)[first_srr_col] <- "SRR"
+#?cbind
+cns_moved_trans_grp <- merge(cns_moved_trans_grp,group_assignment, by.x = 'SRR')
+
+gene_var_trans_grp <- cbind(gene_var_trans, read.table(text = row.names(gene_var_trans), sep = "_", header = F, stringsAsFactors = F, fill = T))
+first_srr_col <- ncol(gene_var_trans)+1
+colnames(gene_var_trans_grp)[first_srr_col] <- "SRR"
+#?cbind
+gene_var_trans_grp <- merge(gene_var_trans_grp,group_assignment, by.x = 'SRR')
+
+cns_var <- rbind(cns_moved, cns_missing)
+cns_var_trans <- t(cns_var)
+rownames(cns_var_trans) <- colnames(cns_var)
+cns_var_trans_grp <- cbind(cns_var_trans, read.table(text = row.names(cns_var_trans), sep = "_", header = F, stringsAsFactors = F, fill = T))
+first_srr_col <- ncol(cns_var_trans)+1
+colnames(cns_var_trans_grp)[first_srr_col] <- "SRR"
+#?cbind
+cns_var_trans_grp <- merge(cns_var_trans_grp,group_assignment, by.x = 'SRR')
+
+
+
+#new one,
+#row accessions
+#one column for latitude, one for longitude
+#hmmmm maybe use that thing saw on twitter to make graph morphing from one position to another..
+#would need to figure out 2d coordinates though shouldn't be too hard
+SraRunTable <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/SraRunTable.txt", header = T, row.names = NULL, sep = "\t")
+#interested in Sample_Name
+#and Run.. take from above:
+SRR_list <- gsub("_.*","",colnames(cns_missing))
+names(SRR_list) <- colnames(cns_missing)
+SraRunTable_srr <- SraRunTable[SraRunTable$Run %in% SRR_list,]
+SraRunTable_short <- SraRunTable_srr[,c("Run", "ecotype")]
+eco_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/query.csv", header = T, row.names = NULL, sep = ",")
+eco_table_srr <- eco_table[eco_table$tg_ecotypeid %in% SraRunTable_short$ecotype,]
+colnames(eco_table_srr)[1] <- "ecotype"
+srr_eco_table <- merge(eco_table_srr,SraRunTable_short,by.x = "ecotype")
+run_lat_long <- srr_eco_table[,c("Run","latitude","longitude")]
+lat_long_pca_table <- run_lat_long[,c("latitude","longitude")]
+rownames(lat_long_pca_table) <- names(SRR_list)
+
+#View(lat_long_pca_table)
+library("stats")
+#?prcomp
+
+#need to remove constant columns:
+#which(apply(cns_moved_trans_grp[,2:4802], 2, var)==0)
+#const 
+#1 
+cns_moved_trans_grp[,2:4802] <- cns_moved_trans_grp[,2:4802][ , apply(cns_moved_trans_grp[,2:4802], 2, var) != 0]
+
+#View(gene_var_trans_grp[,5580:5593])
+#View(gene_var_trans_grp[,1:10])
+#which(apply(gene_var_trans_grp[,2:5593], 2, var)==0)
+#lets automate this shit
+gene_var_up_to <- nrow(gene_var) + 1
+gene_var_trans_grp[,2:gene_var_up_to] <- gene_var_trans_grp[,2:gene_var_up_to][ , apply(gene_var_trans_grp[,2:gene_var_up_to], 2, var) != 0]
+
+#combine missing and moved data....
+mi_mo <- merge(cns_moved_trans_grp, cns_missing_trans_grp, by = "SRR")
+mi_mo <- mi_mo[,-c(4803:4811)]
+
+#cns_missing_pca <- prcomp(cns_missing_trans_grp[,2:1525], scale. = T)
+#cns_moved_pca <- prcomp(cns_moved_trans_grp[,2:4802], scale. = T)
+lat_long_pca <- prcomp(lat_long_pca_table)
+#>95 of variance explained after:
+#missing: PC26
+#moved: PC27
+#rerun with these
+cns_missing_pca <- prcomp(cns_missing_trans_grp[,2:1525], rank. = 26)
+cns_moved_pca <- prcomp(cns_moved_trans_grp[,2:4802], rank. = 26)
+cns_var_pca <- prcomp(cns_var_trans_grp[,2:6326], rank. = 27)
+gene_var_pca <- prcomp(gene_var_trans_grp[,2:gene_var_up_to], rank. = 26)
+mi_mo_pca <- prcomp(mi_mo[,2:6326], rank. = 27)
+#26 PCs to get > 95%
+#summary(gene_var_pca)
+#View(cns_var_trans_grp[1,6325:6335])
+#summary(cns_var_pca)
+#27 PCs
+#tmp <- summary(mi_mo_pca)
+#tmp$importance[,1][2]
+#27 PCs
+###############################
+
+#View(mi_mo[,c(6325:6335)])
+#View(mi_mo[,c(4800:4815)])
+#mi_mo[,c(2:6335)] <- sapply(mi_mo[,c(2:6335)],as.numeric)
+#tmp <- sapply(mi_mo,class)
+#View(tmp[6330:6344])  
+  
+#install.packages("ggfortify")
+library("ggplot2")
+library("ggfortify")
+
+autoplot(cns_missing_pca, data = cns_missing_trans_grp, colour = "Group")
+autoplot(cns_moved_pca, data = cns_moved_trans_grp, colour = "Group")
+autoplot(lat_long_pca,data = lat_long_pca_df, colour = "Group")
+autoplot(cns_var_pca,data = cns_var_trans_grp,colour = "Group")
+autoplot(gene_var_pca,data = gene_var_trans_grp,colour = "Group")
+autoplot(mi_mo_pca,data = mi_mo, colour = "Group.y")
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/pav_posv_pca.png")
+  autoplot(mi_mo_pca,data = mi_mo, colour = "Group.y")
+  dev.off()
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/pav_posv_pca.pdf")
+  autoplot(mi_mo_pca,data = mi_mo, colour = "Group.y")
+  dev.off()
+#hmm it wasn't col-0 fault, I bet it was SRR1946036 something like that
+#View(gene_var_trans_grp$SRR)
+#not super clustered but PC1 explains most of variation, lawdy let it be latitude
+
+cns_missing_pca_df <- as.data.frame(cns_missing_pca$x)
+cns_missing_pca_df$Group <- cns_missing_trans_grp$Group
+cns_missing_pca_df$Tag <- rep("Missing",nrow(cns_missing_pca_df))
+cns_missing_pca_df$Accession <- colnames(cns_missing)
+
+cns_moved_pca_df <- as.data.frame(cns_moved_pca$x)
+cns_moved_pca_df$Group <- cns_moved_trans_grp$Group
+cns_moved_pca_df$Accession <- colnames(cns_moved)
+cns_moved_pca_df$Tag <- rep("Moved",nrow(cns_moved_pca_df))
+
+gene_var_pca_df <- as.data.frame(gene_var_pca$x)
+gene_var_pca_df$Group <- gene_var_trans_grp$Group
+gene_var_pca_df$Accession <- colnames(gene_var)
+gene_var_pca_df$Tag <- rep("Gene_var",nrow(gene_var_pca_df))
+
+mi_mo_pca_df <- as.data.frame(mi_mo_pca$x)
+mi_mo_pca_df$Group <- mi_mo$Group.y
+mi_mo_pca_df$Accession <- colnames(cns_moved)
+mi_mo_pca_df$Tag <- rep ("Mi_Mo",nrow(mi_mo_pca_df))
+
+lat_long_pca_df <- as.data.frame(lat_long_pca$x)
+lat_long_pca_df$Accession <- rownames(lat_long_pca_table)
+#get the right groups...
+group_lat_long <- as.vector(rownames(lat_long_pca_table))
+srr <- gsub("_.*", "", group_lat_long)
+genome_srr <- data.frame(SRR = srr,
+                         Genome = as.vector(rownames(lat_long_pca_table)))
+genome_group <- merge(genome_srr, group_assignment)
+genome_group$Group <- unlist(genome_group$Group)
+lat_long_pca_df$Group <- rep("",nrow(lat_long_pca_df))
+for (i in 1:nrow(lat_long_pca_df)) {
+  lat_long_pca_df$Group[i] <- as.vector(genome_group[which(genome_group$Genome == rownames(lat_long_pca_df)[i]),which(colnames(genome_group) == "Group")])
+  #i <- 1
+  #which(genome_group$Genome == rownames(lat_long_pca_df)[i])
+  #as.vector(genome_group[1,5])
+}
+lat_long_pca_df$Tag <- rep("Geo",nrow(lat_long_pca_df))
+
+#combine these... add another tag
+missing_sub <- cns_missing_pca_df[,c("PC1","PC2","Group","Tag", "Accession")]
+moved_sub <- cns_moved_pca_df[,c("PC1","PC2","Group","Tag", "Accession")]
+gene_sub <- gene_var_pca_df[,c("PC1","PC2","Group","Tag", "Accession")]
+#add trouble accession back in... try as NA first
+#nope, put as 1,1 think thats out of bounds anyway
+#colnames(gene_sub)
+#problem_accession <- c(1,1,"germany","Gene_var","SRR1946036_bwa_alt_3_pbj_5_rename")
+#actually only worked not doing this?
+#well got an error message think might have been able to fix, but looks like its working just dropping this from this df
+#gene_sub <- rbind(gene_sub,problem_accession)
+
+merged_df <- rbind(missing_sub,gene_sub,moved_sub,lat_long_pca_df)
+```
+
+save merged_df
+```{r}
+write.table(merged_df, file = "/Users/alanyocca/Documents/01_athal_cns/pca_data_table.txt",quote = F,row.names = F,sep = "\t")
+```
+
+Depends on getting merged_df object from above code block
+UPDATE: can stand alone now since saved merged_df
+```{r}
+
+library("transformr")
+library("gganimate")
+library(tidyverse)
+
+merged_df = read.table( file = "/Users/alanyocca/Documents/01_athal_cns/pca_data_table.txt",row.names = NULL,sep = "\t", header = T)
+
+#just geo to missing
+#flip y coords.. for missing
+geo_to_missing_df <- merged_df[merged_df$Tag == "Missing" | merged_df$Tag == "Geo",]
+geo_to_missing_df[geo_to_missing_df$Tag == "Missing","PC2"] <- -1 * geo_to_missing_df[geo_to_missing_df$Tag == "Missing","PC2"]
+geo_to_missing <- ggplot(geo_to_missing_df, aes(PC1, PC2)) +
+  geom_point(aes(colour = factor(Group))) +
+  labs(title="state: {closest_state}") +
+  transition_states(Tag)
+geo_to_missing
+anim_save("/Users/alanyocca/Documents/01_athal_cns/geo_to_missing_pca.gif", geo_to_missing)
+
+#missing to moved
+library(ggrepel)
+
+moved_to_missing <- merged_df[merged_df$Tag == "Missing" | merged_df$Tag == "Moved",]
+moved_to_missing$Tag <- gsub("Missing", "PAV", moved_to_missing$Tag) 
+moved_to_missing$Tag <- gsub("Moved", "PosV", moved_to_missing$Tag)
+moved_to_missing_plot <- ggplot(moved_to_missing, aes(PC2, PC1)) +
+  geom_point(aes(colour = Group)) +
+  labs(fill="Admixture Group") +
+  labs(title="state: {closest_state}") +
+  #ggrepel::geom_text_repel(label=moved_to_missing$Accession, point.padding = 2) +
+  geom_text(label=moved_to_missing$Accession) +
+  transition_states(Tag)
+animate(moved_to_missing_plot, width = 800, height = 450)
+
+anim_save("/Users/alanyocca/Documents/01_athal_cns/moved_to_missing_pca.gif", moved_to_missing_plot, width = 776, height = 563)
+
+library(scales)
+show_col(hue_pal()(4))
+#fuck with colors later to get density distribution consistent with other plots
+#consider theme = minimal for this....
+
+
+
+##
+mi_mo_pca_summary <- summary(mi_mo_pca)
+#mi_mo_pca_summary$importance[,1][2]
+mi_mo_graph <- mi_mo_pca_df %>%
+  ggplot(aes(x = PC1,y = PC2, colour = Group)) +
+  geom_point() +
+  xlab(label = paste0("PC1 (",mi_mo_pca_summary$importance[,1][2],"%)")) +
+  ylab(label = paste0("PC1 (",mi_mo_pca_summary$importance[,1][3],"%)")) +
+  ggtitle("PCA PAV and PosV")
+mi_mo_graph
+#
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/mi_mo_pca.pdf", width = 12, height = 6)
+#  plot(mi_mo_graph)
+#  dev.off()
+
+#geo to moved
+geo_to_moved <- ggplot(merged_df[merged_df$Tag == "Moved" | merged_df$Tag == "Geo",], aes(PC1, PC2)) +
+  geom_point(aes(colour = factor(Group))) +
+  labs(title="state: {closest_state}") +
+  transition_states(Tag)
+geo_to_moved
+anim_save("/Users/alanyocca/Documents/01_athal_cns/geo_to_moved_pca.gif", geo_to_moved)
+
+
+#flip gene var axes
+#merged_df <- rbind(missing_sub,gene_sub,moved_sub,lat_long_pca_df)
+merged_df[merged_df$Type == "Gene_var",c("PC2")] <- merged_df[merged_df$Type == "Gene_var",c("PC2")] * -1
+
+anim <- ggplot(merged_df, aes(PC1, PC2)) +
+  geom_point(aes(colour = factor(Group))) +
+  xlim(-10,15) +
+  ylim(-20,20) +
+  labs(title="state: {closest_state}") +
+  transition_states(Tag)
+anim
+anim_save("/Users/alanyocca/Documents/01_athal_cns/gene_to_geo_to_moved_to_missing_pca.gif", anim)
+
+#p <- ggplot(data = cns_missing_pca_df, aes(x = PC1, y = PC2, colour = Group)) + 
+#    geom_point(size=2) + 
+#   # scale_fill_hue(l=40) + 
+#    coord_fixed(ratio=1, xlim=range(cns_missing_pca_df$PC1), ylim=range(cns_missing_pca_df$PC2)) 
+#p
+#?read.table
+?readChar
+summary(cns_missing_pca)
+summary(cns_moved_pca)
+summary(lat_long_pca)
+sd(lat_long_pca_table$latitude)
+sd(lat_long_pca_table$longitude)
+
+
+#save these plots for later
+#save the data frames also?
+#no so long as things don't move, were really quick to make
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/pca_plot_missing.png")
+  plot(autoplot(cns_missing_pca, data = cns_missing_trans_grp, colour = "Group"))
+  dev.off()
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/pca_plot_moved.png")
+  plot(autoplot(cns_moved_pca, data = cns_moved_trans_grp, colour = "Group"))
+  dev.off()
+
+  
+ggplot(airq, aes(Day, Temp, group = Month)) + 
+  geom_line() + 
+  geom_segment(aes(xend = 31, yend = Temp), linetype = 2, colour = 'grey') + 
+  geom_point(size = 2) + 
+  geom_text(aes(x = 31.1, label = Month), hjust = 0) + 
+  transition_reveal(Day) + 
+  coord_cartesian(clip = 'off') + 
+  labs(title = 'Temperature in New York', y = 'Temperature (°F)') + 
+  theme_minimal() + 
+  theme(plot.margin = margin(5.5, 40, 5.5, 5.5))
+  
+geo_to_missing <- ggplot(geo_to_missing_df, aes(PC1, PC2, group = Group)) +
+  geom_line() +
+  geom_segment(aes(xend = PC1, yend = PC2), linetype = 2) +
+  geom_point() +
+  labs(title="state: {closest_state}") +
+  transition_reveal(Tag)
+geo_to_missing
+
+#devtools::install_github("thomasp85/transformr")
+library("transformr")
+
+geo_to_missing <- ggplot(geo_to_missing_df, aes(PC1, PC2)) +
+  geom_segment(xend = )
+?transition_reveal
+geo_to_missing
+lapply(geo_to_missing_df, class)
+#hmm just convert missing, moved, geo to a numeric?
+#Geo, Missing, Moved
+#1,   2,        3
+geo_to_missing_df$Tag_num <- rep(0,nrow(geo_to_missing_df))
+for (i in 1:nrow(geo_to_missing_df)) {
+  if (geo_to_missing_df$Tag[i] == "Geo") {
+    geo_to_missing_df$Tag_num[i] <- 1
+  } else if (geo_to_missing_df$Tag[i] == "Missing") {
+    geo_to_missing_df$Tag_num[i] <- 2
+  } else if (geo_to_missing_df$Tag[i] == "Moved") {
+    geo_to_missing_df$Tag_num[i] <- 3
+  }
+}
+library(tidyverse)
+#rbind(missing_sub,moved_sub,lat_long_pca_df)
+line_seg_df <- cbind(lat_long_pca_df,missing_sub)
+colnames(line_seg_df)
+line_seg_col_name <- c("PC1.1","PC2.1","Accession","Group","Tag","PC1.2","PC2.2","Group","Tag","Accession")
+colnames(line_seg_df) <- line_seg_col_name
+line_seg_df <- line_seg_df[,c(1,2,6,7)]
+
+line_seg_graph <- line_seg_df %>%
+  ggplot(aes(PC1.2,PC2.2)) +
+  geom_segment(aes(xend = PC1.1, yend = PC2.1), arrow = arrow())
+line_seg_graph
+  
+  ggplot(seals, aes(long, lat)) +
+  geom_segment(aes(xend = long + delta_long, yend = lat + delta_lat),
+    arrow = arrow(length = unit(0.1,"cm"))) +
+
+#I think it might be better for this part to just manually do a line graph from one dot to the next
+#data need morphed?
+#hmm
+
+```
+
+
+Depends on getting merged_df object from two blocks above:
+Messing around with formatting
+```{r}
+#rm(list=ls(all=TRUE))
+library("transformr")
+library("gganimate")
+#missing to moved
+library(ggrepel)
+
+merged_df <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/pca_data_table.txt",sep = "\t",row.names = NULL, header = T)
+
+moved_to_missing <- merged_df[merged_df$Tag == "Missing" | merged_df$Tag == "Moved",]
+moved_to_missing$Tag <- gsub("Missing", "PAV", moved_to_missing$Tag) 
+moved_to_missing$Tag <- gsub("Moved", "PosV", moved_to_missing$Tag)
+moved_to_missing$Accession <- as.character(moved_to_missing$Accession)
+
+#translate to common names
+info_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/final_gen_eco_cn_id.txt",sep = "\t",row.names = NULL,header = T)
+#easiest way to switch out names....
+#i <- 1
+cn_vect <- c()
+
+for (i in 1:nrow(moved_to_missing)) {
+  srr_split <- unlist(strsplit(moved_to_missing$Accession[i], split = "_"))
+  cn_index <- which(grepl(srr_split[1],info_table$SRR))
+  common_name <- as.character(info_table$Common_Name[cn_index])
+  cn_vect <- c(cn_vect,common_name)
+}
+moved_to_missing <- cbind(moved_to_missing, cn_vect)
+
+moved_to_missing_plot <- ggplot(moved_to_missing, aes(PC2, PC1)) +
+  geom_point(aes(colour = Group), size = 3) +
+  theme(legend.text=element_text(size=25),
+        legend.title = element_text(size = 25),
+        axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25)) +
+  labs(fill="Admixture Group") +
+  #theme(legend.text=element_text(size=50)) +
+  labs(title="state: {closest_state}") +
+  #ggrepel::geom_text_repel(label=moved_to_missing$Accession, point.padding = 2) +
+  #ggrepel::geom_text_repel(label=moved_to_missing$cn_vect, box.padding = unit(3, 'lines')) +
+  transition_states(Tag)
+animate(moved_to_missing_plot, width = 800, height = 450)
+#?animate()
+
+anim_save("/Users/alanyocca/Documents/01_athal_cns/moved_to_missing_pca_50.gif", moved_to_missing_plot, units = "in", width = (7.76*2), height = (5.63*2), res = 100)
+dev.off()
+#hmmm other thing I can think is get the position of static spread out and layer those on moving graph...
+library(scales)
+show_col(hue_pal()(4))
+#fuck with colors later to get density distribution consistent with other plots
+#consider theme = minimal for this....
+
+```
+
+
+
+```{r}
+#jitter plot
+
+plot <- plotdat %>% ggplot(aes(x=decile,y=count,color=color)) +
+  geom_point(position = position_jitter(width = 0.2, height = 0.2), size=2) +
+  scale_color_viridis_d() +
+  scale_x_continuous(breaks=1:10, minor_breaks = seq(0.5,10.5,1)) +
+  theme_ms() + theme(legend.position = "none", axis.text.y = element_blank(), axis.title.x = element_text(hjust=0), panel.grid.minor.x = element_line(size=0.3,color="gray"), panel.grid.major = element_blank(), plot.caption = element_text(size=10)) +
+  labs(x=expression("Net wealth decile (poor" %->% "rich)"), y="", title="Rich people think they are middle class", subtitle ="Actual and estimated position in the net wealth distribution in Austria", caption="Data: HFCS 2014, OeNB. Figure: @matschnetzer") +
+  geom_label(aes(x=10,y=1.3,label=label,hjust=0.8),color=msc_palette[1],data=labdf, size=4) +
+  transition_states(state,
+                    transition_length = 15,
+                    state_length = 20)
+
+#install.packages("devtools")
+#library("devtools")
+#update.packages("ggplot2")
+#library("ggplot2")
+#sessionInfo()
+#devtools::install_github('thomasp85/gganimate')
+library(gganimate)
+#install.packages("gifski")
+library(gifski)
+
+mtcars
+ggplot(mtcars, aes(x = am, y = vs)) + geom_point(position = "jitter")
+ggplot(mtcars, aes(x = am, y = vs)) + geom_point(position = position_jitter(w = 0.1, h = 0.1))
+ggplot(mtcars, aes(x = am, y = vs)) +
+  geom_point()
+
+anim <- animate(plot, height=4, width=8, nframes = 100, res=300, unit = "in")
+anim_save("hfcs.gif", anim)
+
+airq <- airquality
+airq$Month <- format(ISOdate(2004,1:12,1),"%B")[airq$Month]
+
+View(airquality)
+anim <- ggplot(airquality, aes(Day, Temp)) +
+  geom_point(aes(colour = factor(Month))) +
+  transition_states(Day)
+anim
+
+#try subsetting to just two days and see if can get for to work
+test_anim <- airquality[airquality$Day %in% c(1,25),]
+anim <- ggplot(test_anim, aes(Day, Temp)) +
+  geom_point(aes(colour = factor(Month))) +
+  transition_states(Day)
+anim
+#Nice! That worked!!
+
+#data frame
+#tidy
+#accession, X coord, Y coord, State
+
+
+```
+
+
+MCA instead of PCA:
+
+```{r}
+
+install.packages(c("FactoMineR", "factoextra"))
+library("FactoMineR")
+library("factoextra")
+
+#a few objects to take from above code
+#cns_var_trans_grp
+#cns_missing_trans_grp
+#cns_moved_trans_grp
+#lat_long_pca_table
+#cns_missing_pca <- prcomp(cns_missing_trans_grp[,2:1525], rank. = 26)
+#cns_moved_pca <- prcomp(cns_moved_trans_grp[,2:4802], rank. = 26)
+#cns_var_pca <- prcomp(cns_var_trans_grp[,2:6326], rank. = 27)
+
+#res.mca <- MCA(poison.active, graph = FALSE)
+#convert to factor
+cns_missing_trans_grp[,2:1525] <- as.factor(cns_missing_trans_grp[,2:1525])
+res.missing <- MCA(cns_missing_trans_grp[,2:1525], graph = F)
+#?MCA
+#fviz_screeplot(res.missing, addlabels = TRUE)
+fviz_mca_biplot(res.missing, 
+               repel = TRUE, # Avoid text overlapping (slow if many point)
+               ggtheme = theme_minimal())
+
+
+
+
+```
+
+
+#make some normal distributions for presentation, high resolution
+```{r}
+#
+library(tidyverse)
+library(ggplot2)
+
+#make normal distribution dataframe
+test_seq <- seq(-5, 5, by = .01)
+test_df <- data.frame(X = test_seq,
+                      Prob = dnorm(test_seq))
+#
+test_dist <- test_df %>%
+  ggplot(aes(x = X, y = Prob)) +
+  geom_point() +
+ # theme(axis.title.y = element_blank()) +
+  theme_void()
+test_dist
+#
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/normal_dist.png",width = 5.21, height = 2.47, res = 600, units = "in")
+  plot(test_dist)
+  dev.off()
+```
+
+Work on Figures for manuscript, static missing and moved plots with same axes, same spline lines, and labeled points
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(ggplot2)
+library(tidyverse)
+library(ggrepel)
+
+merged_df = read.table( file = "/Users/alanyocca/Documents/01_athal_cns/pca_data_table.txt",row.names = NULL,sep = "\t", header = T)
+
+moved_to_missing <- merged_df[merged_df$Tag == "Missing" | merged_df$Tag == "Moved",]
+moved_to_missing$Tag <- gsub("Missing", "PAV", moved_to_missing$Tag) 
+moved_to_missing$Tag <- gsub("Moved", "PosV", moved_to_missing$Tag)
+moved_to_missing$Accession = as.character(moved_to_missing$Accession)
+
+#translate to common names
+info_table <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/final_gen_eco_cn_id.txt",sep = "\t",row.names = NULL,header = T)
+#easiest way to switch out names....
+#i <- 1
+cn_vect <- c()
+
+for (i in 1:nrow(moved_to_missing)) {
+  srr_split <- unlist(strsplit(moved_to_missing$Accession[i], split = "_"))
+  cn_index <- which(grepl(srr_split[1],info_table$SRR))
+  common_name <- as.character(info_table$Common_Name[cn_index])
+  cn_vect <- c(cn_vect,common_name)
+}
+moved_to_missing <- cbind(moved_to_missing, cn_vect)
+colnames(moved_to_missing)[6] = "Common_name"
+
+#check line crossing
+moved_to_missing = moved_to_missing %>% 
+  mutate(Above = ifelse(PC1 > (4*PC2), "True", "False"))
+#hmm checking switching is a little more tricky... need to align those with different tags, merge first? eh make a separate df, do in a loop yourself
+cross_df = data.frame(cn_vect = character(),
+                      cross = character())
+#i = 2
+for ( i in 1:length(unique(cn_vect))) {
+  loop_df = moved_to_missing[which(grepl(cn_vect[i],moved_to_missing$Common_name)),]
+  cross = ifelse(loop_df[1,"Above"] == loop_df[2,"Above"],"False","True")
+  loop_cross = c(cn_vect[i],cross)
+  cross_df = rbind(cross_df,loop_cross)
+  colnames(cross_df) = c("Common_name","cross")
+  cross_df$Common_name = as.character(cross_df$Common_name)
+  cross_df$cross = as.character(cross_df$cross)
+  rm(loop_df,cross,loop_cross)
+}
+#nrow(cross_df[which(grepl("True",cross_df$cross)),])
+#10 / 30 cross the spline
+
+#best way to highlight for labeling, add another column, only gets label if crosses
+moved_to_missing = merge(moved_to_missing,cross_df)
+#
+
+#only label those that cross
+moved_to_missing$Label <- ""
+moved_to_missing$Common_name = as.character(moved_to_missing$Common_name)
+for (i in 1:nrow(moved_to_missing)){
+  if (moved_to_missing$cross[i] == "True") {
+    moved_to_missing$Label[i] = moved_to_missing$Common_name[i]
+  }
+}
+
+pav_pca = moved_to_missing[which(grepl("PAV",moved_to_missing$Tag)),]
+PAV_plot <- pav_pca %>% 
+  ggplot(aes(x = PC2, y = PC1, label = Label)) +
+  geom_point(aes(colour = Group), size = 3) +
+  ylim(-10,22) +
+  xlim(-14,14) +
+  geom_abline(intercept = 0, slope = 4, color="red", size=1.5) +
+#  theme(legend.text=element_text(size=25),
+#        legend.title = element_text(size = 25),
+#        axis.text=element_text(size=25),
+#        axis.title.x = element_text(size=25),
+#        axis.title.y = element_text(size=25),
+#        title = element_text(size=25)) +
+  labs(fill="Admixture Group") +
+  #theme(legend.text=element_text(size=50)) +
+  ggtitle(label="PAV") +
+  #ggrepel::geom_text_repel(label=moved_to_missing$Accession, point.padding = 2) +
+  ggrepel::geom_text_repel(box.padding = 3, size = 10) +
+  theme_minimal() +
+  theme(axis.text=element_text(size=25),
+        axis.title.x = element_text(size=25),
+        axis.title.y = element_text(size=25),
+        title = element_text(size=25),
+        legend.position = "none")
+#hide legend because combining in inkscape with below
+PAV_plot
+#
+
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/pav_plot.pdf", width = (7.76*2), height = (5.63*2))
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/pav_plot.pdf")
+  plot(PAV_plot)
+  dev.off()
+#
+#fix Group names in here:
+#same shit for pav
+posv_pca = moved_to_missing[which(grepl("PosV",moved_to_missing$Tag)),]
+
+posv_pca$Group = gsub("admixed","Admixed",posv_pca$Group)
+posv_pca$Group = gsub("asia","Asia",posv_pca$Group)
+posv_pca$Group = gsub("central_europe","Central Europe",posv_pca$Group)
+posv_pca$Group = gsub("germany","Germany",posv_pca$Group)
+posv_pca$Group = gsub("italy_balkan_caucasus","Italy Balkan Caucasus",posv_pca$Group)
+posv_pca$Group = gsub("relic","Relic",posv_pca$Group)
+posv_pca$Group = gsub("south_sweden","South Sweden",posv_pca$Group)
+posv_pca$Group = gsub("spain","Spain",posv_pca$Group)
+posv_pca$Group = gsub("western_europe","Western Europe",posv_pca$Group)
+
+pav_pca$Group = gsub("admixed","Admixed",pav_pca$Group)
+pav_pca$Group = gsub("asia","Asia",pav_pca$Group)
+pav_pca$Group = gsub("central_europe","Central Europe",pav_pca$Group)
+pav_pca$Group = gsub("germany","Germany",pav_pca$Group)
+pav_pca$Group = gsub("italy_balkan_caucasus","Italy Balkan Caucasus",pav_pca$Group)
+pav_pca$Group = gsub("relic","Relic",pav_pca$Group)
+pav_pca$Group = gsub("south_sweden","South Sweden",pav_pca$Group)
+pav_pca$Group = gsub("spain","Spain",pav_pca$Group)
+pav_pca$Group = gsub("western_europe","Western Europe",pav_pca$Group)
+
+
+
+
+#posv_pca = moved_to_missing[which(grepl("PosV",moved_to_missing$Tag)),]
+PosV_plot <- posv_pca %>% 
+  ggplot(aes(x = PC2, y = PC1, label = Label)) +
+  geom_point(aes(colour = Group), size = 3) +
+  ylim(-10,22) +
+  xlim(-14,14) +
+  geom_abline(intercept = 0, slope = 4, color="red", size=1.5) +
+  labs(fill="Admixture Group") +
+  #theme(legend.text=element_text(size=50)) +
+  ggtitle(label="PosV") +
+  #ggrepel::geom_text_repel(label=moved_to_missing$Accession, point.padding = 2) +
+  ggrepel::geom_text_repel(box.padding = 3, size = 10) +
+  theme_minimal() +
+  theme(legend.text=element_text(size=25),
+      legend.title = element_text(size = 25),
+      axis.text=element_text(size=25),
+      axis.title.x = element_text(size=25),
+      axis.title.y = element_text(size=25),
+      title = element_text(size=25),
+      legend.position = "bottom") 
+PosV_plot
+#dev.off()
+
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/posv_plot.pdf", width = (7.76*2), height = (5.63*2))
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/posv_plot.pdf")
+  plot(PosV_plot)
+  dev.off()
+#
+#combine plots, fuck it ,, probs easier in illustrator
+#give it one more go with facet_grid
+pav_posv_pca = rbind(pav_pca,posv_pca)
+
+pav_posv_plot <- pav_posv_pca %>% 
+  ggplot(aes(x = PC2, y = PC1, label = Label)) +
+  geom_point(aes(colour = Group), size = 3) +
+  ylim(-10,22) +
+  xlim(-14,14) +
+  geom_abline(intercept = 0, slope = 4, color="red", size=1.5) +
+  labs(fill="Admixture Group") +
+  #theme(legend.text=element_text(size=50)) +
+  #ggtitle(label=~Tag) +
+  #ggrepel::geom_text_repel(label=moved_to_missing$Accession, point.padding = 2) +
+  ggrepel::geom_text_repel(box.padding = 3, size = 7.5) +
+  theme_minimal() +
+  facet_wrap(~Tag) +
+  theme(legend.text=element_text(size=20),
+      legend.title = element_text(size = 20),
+      axis.text=element_text(size=20),
+      axis.title.x = element_text(size=20),
+      axis.title.y = element_text(size=20),
+      title = element_text(size=20),
+      legend.position = "bottom",
+      panel.spacing = unit(2, "lines"),
+      strip.text = element_text(size=20)) 
+pav_posv_plot
+#dev.off()
+
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/posv_plot.pdf", width = (7.76*2), height = (5.63*2))
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/pav_posv_plot.pdf", width = (7*2))
+  plot(pav_posv_plot)
+  dev.off()
+#
+
+#take labels off
+#Decided left panel will be a and right will be b
+pav_posv_pca$Tag = gsub("PAV","a.) PAV",pav_posv_pca$Tag)
+pav_posv_pca$Tag = gsub("PosV","b.) PosV",pav_posv_pca$Tag)
+pav_posv_plot_no_label <- pav_posv_pca %>% 
+  ggplot(aes(x = PC2, y = PC1, label = Label)) +
+  geom_point(aes(colour = Group), size = 3) +
+  ylim(-10,22) +
+  xlim(-14,14) +
+  geom_abline(intercept = 0, slope = 4, color="red", size=1.5) +
+  labs(fill="Admixture Group") +
+  #theme(legend.text=element_text(size=50)) +
+  #ggtitle(label=~Tag) +
+  #ggrepel::geom_text_repel(label=moved_to_missing$Accession, point.padding = 2) +
+  #ggrepel::geom_text_repel(box.padding = 3, size = 7.5) +
+  theme_minimal() +
+  facet_wrap(~Tag) +
+  theme(legend.text=element_text(size=20),
+      legend.title = element_text(size = 20),
+      axis.text=element_text(size=20),
+      axis.title.x = element_text(size=20),
+      axis.title.y = element_text(size=20),
+      title = element_text(size=20),
+      legend.position = "bottom",
+      panel.spacing = unit(2, "lines"),
+      strip.text = element_text(size=20, hjust = 0)) 
+pav_posv_plot_no_label
+#dev.off()
+
+#pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/posv_plot.pdf", width = (7.76*2), height = (5.63*2))
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/25_PCA/pav_posv_plot_no_label.pdf", width = (7*2))
+  plot(pav_posv_plot_no_label)
+  dev.off()
+#
+
+
+
+#require(gridExtra)
+library(gridExtra)
+
+grid.arrange(PAV_plot, PosV_plot, ncol=2)
+dev.off()
+
+pdf(file = paste0(output_path,"_sushi_",chrom,"_",tair_chromstart,"_",tair_chromend,".pdf")
+    ,width = (2.75*1.5), height = (1.5*2.125))
+par(mfrow=c(4,1),mar=c(1,4,1,1))
+
+
+
+
+
+#Figure out matching xy coords
+#X
+max(pav_pca$PC2)
+#[1] 3.236182
+max(posv_pca$PC2)
+#[1] 13.48599
+
+#Y
+max(pav_pca$PC1)
+#[1] 5.561055
+max(posv_pca$PC1)
+#[1] 21.51551
+
+#X
+min(pav_pca$PC2)
+#[1] -13.37885
+min(posv_pca$PC2)
+#[1] -5.288059
+
+#Y
+min(pav_pca$PC1)
+#[1] -9.614237
+min(posv_pca$PC1)
+#[1] -7.698688
+
+#X = (-13.37885,13.48599) ~ (-14,14)
+#Y = (-9.614237,21.51551) ~ (-10,22)
+
+#try drawing line through points:
+#PAV
+#same as below could work
+#PosV
+#(-2.5,-10) & (0,0)
+#slope:
+#4
+#y − y1 = m(x − x1)
+#y + 10 = 4x + 10
+#y = 4x
+
+PAV_PosV_plot
+#
+
+#Think will just label points that cross the spline, figure out what the spline should be, then get vector of names for it
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

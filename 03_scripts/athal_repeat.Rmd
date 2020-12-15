@@ -1,0 +1,310 @@
+---
+title: "athal_repeat"
+output: html_document
+---
+
+#repeat analysis of PosV flanking sequence
+
+
+Code Block: repeatmasker distance
+- investigate differences in distance of PosV vs. Collinear CNS to proximate repeat annotation from repeatmasker
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#PosV distance vector: (third column has the distance we want)
+path = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/03_dist_vect/"
+file.names <- dir(path, pattern="*mx_moved_closest_dist_vect.txt", full.names = T)
+list_of_files <- file.names
+loaded_list_of_files_posv <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+path = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/03_dist_vect/"
+file.names <- dir(path, pattern="*mx_coll_closest_dist_vect.txt", full.names = T)
+list_of_files <- file.names
+loaded_list_of_files_coll <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#get into two column data frame, Distance and Type
+dist_df = data.frame(Distance = numeric(),
+                     Type = character(),
+                     stringsAsFactors = F)
+for (i in 1:length(loaded_list_of_files_posv)) {
+  loop_df = data.frame(Distance = loaded_list_of_files_posv[[i]]$V3,
+                       Type = rep("PosV",nrow(loaded_list_of_files_posv[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+for (i in 1:length(loaded_list_of_files_coll)) {
+  loop_df = data.frame(Distance = loaded_list_of_files_coll[[i]]$V3,
+                       Type = rep("Coll",nrow(loaded_list_of_files_coll[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+#rename columns and refactor Type
+colnames(dist_df)=c("Distance","Type")
+dist_df$Type=as.factor(dist_df$Type)
+
+#plotsies
+dist_plot = dist_df %>% 
+  ggplot(aes(x = Distance, fill = Type)) +
+  geom_density(alpha = 0.5) +
+  xlim(-10000,10000)
+dist_plot
+#
+#absolute distance
+dist_df_abs = dist_df
+dist_df_abs$Distance = abs(dist_df_abs$Distance)
+abs_dist_plot = dist_df_abs %>% 
+  ggplot(aes(y = Distance, x = Type, fill = Type)) +
+  geom_violin() +
+  geom_boxplot(alpha = 0.5) +
+  ylim(0,10000)
+abs_dist_plot
+#
+
+#save this guy
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/abs_dist_violin.pdf")
+  plot(abs_dist_plot)
+dev.off()
+
+#what about if !=0 (where CNS is not itself the simple sequence)
+#nz for not zero
+abs_dist_plot_nz = dist_df_abs[which(dist_df_abs$Distance != 0),] %>% 
+  ggplot(aes(y = Distance, x = Type, fill = Type)) +
+  geom_violin() +
+  geom_boxplot(alpha = 0.5) +
+  ylim(0,10000)
+abs_dist_plot_nz
+
+#stat test backing it up:
+ks.test(
+  dist_df[which(dist_df$Type == "PosV"),1],
+  dist_df[which(dist_df$Type == "Coll"),1]
+)
+#D = 0.095652, p-value < 2.2e-16
+#significantly different distributions
+#what about a t test
+t.test(
+  dist_df[which(dist_df$Type == "PosV"),1],
+  dist_df[which(dist_df$Type == "Coll"),1]
+)
+#NOT sig
+#t = -0.42516, df = 111340, p-value = 0.6707
+
+#absolute distance probably more important
+ks.test(
+  dist_df_abs[which(dist_df_abs$Type == "PosV"),1],
+  dist_df_abs[which(dist_df_abs$Type == "Coll"),1]
+)
+#D = 0.16091, p-value < 2.2e-16
+t.test(
+  dist_df_abs[which(dist_df_abs$Type == "PosV"),1],
+  dist_df_abs[which(dist_df_abs$Type == "Coll"),1]
+)
+#t = -70.371, df = 108750, p-value < 2.2e-16
+#yawww thought so. hmmm df difference here is disturbing, should be same # of observations, o whale?
+
+#extreme distances for coll likely account for difference between abs and empirical distances
+
+
+
+```
+
+
+Code Block: TE distance
+- blasted TAIR TE set with e value of 1e-4
+- mess around with e-100
+
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#PosV distance vector: (third column has the distance we want)
+path = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/03_dist_vect/e100"
+file.names <- dir(path, pattern="*_tair_te_e100_sort_mx_moved_closest_dist_vect.txt", full.names = T)
+list_of_files <- file.names
+loaded_list_of_files_posv <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+path = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/03_dist_vect/e100"
+file.names <- dir(path, pattern="*_tair_te_e100_sort_mx_coll_closest_dist_vect.txt", full.names = T)
+list_of_files <- file.names
+loaded_list_of_files_coll <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#get into two column data frame, Distance and Type
+dist_df = data.frame(Distance = numeric(),
+                     Type = character(),
+                     stringsAsFactors = F)
+for (i in 1:length(loaded_list_of_files_posv)) {
+  loop_df = data.frame(Distance = loaded_list_of_files_posv[[i]]$V3,
+                       Type = rep("PosV",nrow(loaded_list_of_files_posv[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+for (i in 1:length(loaded_list_of_files_coll)) {
+  loop_df = data.frame(Distance = loaded_list_of_files_coll[[i]]$V3,
+                       Type = rep("Coll",nrow(loaded_list_of_files_coll[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+#rename columns and refactor Type
+colnames(dist_df)=c("Distance","Type")
+dist_df$Type=as.factor(dist_df$Type)
+
+#plotsies
+dist_plot = dist_df %>% 
+  ggplot(aes(x = Distance, fill = Type)) +
+  geom_density(alpha = 0.5) +
+  xlim(-10000,10000)
+dist_plot
+#
+#absolute distance
+dist_df_abs = dist_df
+dist_df_abs$Distance = abs(dist_df_abs$Distance)
+abs_dist_plot = dist_df_abs %>% 
+  ggplot(aes(y = Distance, x = Type, fill = Type)) +
+  geom_violin() +
+  geom_boxplot(alpha = 0.5) +
+  ylim(0,10000) +
+  ggtitle(label = "Distance (in basepairs) to closest TE")
+abs_dist_plot
+#
+
+#save this guy
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/abs_dist_te_e100_violin.pdf")
+  plot(abs_dist_plot)
+dev.off()
+
+#what about if !=0 (where CNS is not itself the simple sequence)
+#nz for not zero
+abs_dist_plot_nz = dist_df_abs[which(dist_df_abs$Distance != 0),] %>% 
+  ggplot(aes(y = Distance, x = Type, fill = Type)) +
+  geom_violin() +
+  geom_boxplot(alpha = 0.5) +
+  ylim(0,10000)
+abs_dist_plot_nz
+
+#stat test backing it up:
+ks.test(
+  dist_df[which(dist_df$Type == "PosV"),1],
+  dist_df[which(dist_df$Type == "Coll"),1]
+)
+#D = 0.34691, p-value < 2.2e-16
+#significantly different distributions
+#what about a t test
+t.test(
+  dist_df[which(dist_df$Type == "PosV"),1],
+  dist_df[which(dist_df$Type == "Coll"),1]
+)
+#sig
+#t = -21.323, df = 1356700, p-value < 2.2e-16
+
+#absolute distance probably more important
+ks.test(
+  dist_df_abs[which(dist_df_abs$Type == "PosV"),1],
+  dist_df_abs[which(dist_df_abs$Type == "Coll"),1]
+)
+#D = 0.58033, p-value < 2.2e-16
+t.test(
+  dist_df_abs[which(dist_df_abs$Type == "PosV"),1],
+  dist_df_abs[which(dist_df_abs$Type == "Coll"),1]
+)
+#t = -655.85, df = 1025100, p-value < 2.2e-16
+tmp = dist_df_abs[which(dist_df_abs$Type == "PosV"),]
+tmp_2 = tmp[which(tmp$Distance == 0),]
+nrow(tmp_2)
+nrow(tmp)
+
+nrow(dist_df_abs[which(dist_df_abs$Type == "Coll") && which(dist_df_abs$Distance == 0),])
+tmp = dist_df_abs[which(dist_df_abs$Type == "Coll"),]
+tmp_2 = tmp[which(tmp$Distance == 0),]
+nrow(tmp_2)
+nrow(tmp)
+
+class(dist_df_abs$Distance)
+summary(tmp)
+
+```
+
+Code Block: TE density
+- pretty much same stuff but density instead of distance
+```{r}
+#rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#PosV distance vector: (third column has the distance we want)
+path = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/05_density/"
+file.names <- dir(path, pattern="*_tair_te_e4_sort_gc_bg_mx_moved_density.txt", full.names = T)
+list_of_files <- file.names
+loaded_list_of_files_posv <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+path = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/05_density/"
+file.names <- dir(path, pattern="*_tair_te_e4_sort_gc_bg_mx_coll_density.txt", full.names = T)
+list_of_files <- file.names
+loaded_list_of_files_coll <- lapply(list_of_files,function(i){
+  read.table(file = i,stringsAsFactors = F, header = F, row.names = NULL)
+})
+
+#get into two column data frame, Density and Type and Feature
+dist_df = data.frame(Density = numeric(),
+                     Feature = character(),
+                     Type = character(),
+                     stringsAsFactors = F)
+for (i in 1:length(loaded_list_of_files_posv)) {
+  loop_df = data.frame(Density = loaded_list_of_files_posv[[i]]$V1,
+                       Feature = loaded_list_of_files_posv[[i]]$V2,
+                       Type = rep("PosV",nrow(loaded_list_of_files_posv[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+for (i in 1:length(loaded_list_of_files_coll)) {
+  loop_df = data.frame(Density = loaded_list_of_files_coll[[i]]$V1,
+                       Feature = loaded_list_of_files_coll[[i]]$V2,
+                       Type = rep("Coll",nrow(loaded_list_of_files_coll[[i]])),
+                       stringsAsFactors = F)
+  dist_df = rbind(dist_df,loop_df)
+}
+#rename columns and refactor Type
+colnames(dist_df)=c("Density","Feature","Type")
+dist_df$Type=as.factor(dist_df$Type)
+
+#plotsies
+#dist_plot = dist_df %>% 
+#  ggplot(aes(x = Distance, fill = Type)) +
+#  geom_density(alpha = 0.5) 
+#  xlim(-10000,10000)
+#dist_plot
+#
+#absolute distance
+dist_df_abs = dist_df
+dist_df_abs$Density = abs(dist_df_abs$Density)
+abs_dist_plot = dist_df_abs %>% 
+  ggplot(aes(y = Density, x = Type, fill = Type)) +
+  geom_violin() +
+  geom_boxplot(alpha = 0.5) +
+#  ylim(0,10000) +
+  ggtitle(label = "Density of TEs") +
+  facet_wrap(~Feature)
+abs_dist_plot
+#
+
+#save this guy
+pdf(file = "/Users/alanyocca/Documents/01_athal_cns/26_repeat/abs_dens_te_e4_violin.pdf")
+  plot(abs_dist_plot)
+dev.off()
+
+```
+
+

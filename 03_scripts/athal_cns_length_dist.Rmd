@@ -1,0 +1,96 @@
+---
+title: "athal_cns_length_dist"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+length distributions:
+
+
+hmm think:
+instead of counting multiple times, I say just for each CNS in tair10 annotate as collinear in every acc, moved in at least 1, missing in at least 1
+
+get table for every CNS, change type if found in the all lists
+
+```{r}
+rm(list=ls(all=TRUE))
+library(tidyverse)
+library(ggplot2)
+
+#load in all CNS
+all_cns <- read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/CNS_Brassicaceae_length_table.txt",header = T, row.names = NULL, sep = "\t")
+
+#load in missing / moved all lists and mark off in Tag column
+
+missing_cns <- as.character(unlist(read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_missing/01_final/01_single_rep/all_missing_uniq.txt",header = F,row.names = NULL)))
+
+moved_cns <- as.character(unlist(read.table(file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/acc_moved/01_final/01_single_rep/all_moved_uniq.txt",header = F,row.names = NULL)))
+
+#change tag
+#remove factor levels first
+all_cns$Tag <- as.character(all_cns$Tag)
+all_cns$Tag[all_cns$Seq_Name %in% missing_cns] <- "Missing"
+#missing_cns_len <- all_cns[all_cns$Seq_Name %in% missing_cns,]
+#missing_cns_len$Tag <- rep("Missing",nrow(missing_cns_len))
+all_cns$Tag[all_cns$Seq_Name %in% moved_cns] <- "Moved"
+#moved_cns_len <- all_cns[all_cns$Seq_Name %in% moved_cns,]
+#moved_cns_len$Tag <- rep("Moved",nrow(moved_cns_len))
+#tmp_all <- rbind(all_cns,missing_cns_len,moved_cns_len)
+#No apparent difference between collinear distribution, and all distribution
+
+
+#graph
+length_distribution <- all_cns %>%
+  ggplot(aes(Length, fill = Tag)) +
+  geom_density(aes(alpha = 0.1)) +
+  xlim(0,250) +
+  ggtitle(label = "Distribution of sequence lengths for difference classes of CNS,\nif missing or moved in at least 1 accession,\nor if collinear in every accession")
+length_distribution
+#
+
+png(filename = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/cns_mi_mo_length_dist.png")
+  plot(length_distribution)
+  dev.off()
+write.table(all_cns,file = "/Users/alanyocca/Documents/01_athal_cns/cns_calls/01_cns_length_dist/01_data/cns_length_type.txt", row.names = F, quote = F, sep = "\t")
+
+#get missing / collinear into vector and test for difference:
+missing_vect <- as.vector(all_cns$Length[all_cns$Seq_Name %in% missing_cns])
+coll_vect <- as.vector(all_cns$Length[all_cns$Tag == "Collinear"])
+moved_vect <- as.vector(all_cns$Length[all_cns$Seq_Name %in% moved_cns])
+
+ks.test(missing_vect,coll_vect)
+mean(missing_vect)
+mean(coll_vect)
+mean(moved_vect)
+```
+
+
+
+
+
+
+
